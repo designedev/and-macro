@@ -41,10 +41,12 @@ class OverlayController(private val context: Context,
     private var brightnessClickRestores: Boolean? = null
     private val animation = Handler(Looper.getMainLooper())
     private var spinnerIndex = 0
+    private val spinnerFrames = arrayOf("[ | ]", "[ / ]", "[ - ]", "[ \\ ]")
     private val spinner = object : Runnable {
         override fun run() {
             if (!running || view == null) return
-            label?.text = "[ ${listOf("|", "/", "-", "\\")[spinnerIndex++ % 4]} ]"
+            label?.text = spinnerFrames[spinnerIndex]
+            spinnerIndex = (spinnerIndex + 1) % spinnerFrames.size
             animation.postDelayed(this, 250)
         }
     }
