@@ -1,0 +1,38 @@
+# Gradle / Android generated files
+.gradle/
+.kotlin/
+**/build/
+.cxx/
+.externalNativeBuild/
+local.properties
+*.apk
+*.aab
+*.ap_
+*.hprof
+
+# Local IDE / OS / agent workspace state
+.idea/
+*.iml
+.DS_Store
+._*
+*.swp
+*.swo
+/.codex/
+/.agents/
+
+# Build receipts, device diagnostics, screenshots, packaged source
+/outputs/
+*.log
+
+# Signing material and local secrets
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+keystore.properties
+signing.properties
+.env
+.env.*
+!.env.example
