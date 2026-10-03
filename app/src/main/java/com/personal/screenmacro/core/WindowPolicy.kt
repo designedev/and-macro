@@ -40,9 +40,16 @@ object SystemUiPolicy {
         val app = windows.filter { it.kind == WindowKind.APPLICATION && !it.ownOverlay }
             .firstOrNull { it.focused || it.active }
         return windows.any { window ->
+            // SystemUI also owns passive floating accessibility controls. They only
+            // exclude their rectangle from clicks; they must not pause the session.
+            // Focused/active system windows still pause regardless of their size.
+            val compactLimit = minOf(content.right - content.left, content.bottom - content.top) / 4f
+            val compactFloatingControl = window.bounds.valid() &&
+                window.bounds.right - window.bounds.left <= compactLimit &&
+                window.bounds.bottom - window.bounds.top <= compactLimit
             window.kind == WindowKind.SYSTEM_UI && !window.ownOverlay &&
                 (window.active || window.focused ||
-                    (window.bounds.valid() && window.bounds.intersects(content) && (app == null || window.layer > app.layer)))
+                    (!compactFloatingControl && window.bounds.valid() && window.bounds.intersects(content) && (app == null || window.layer > app.layer)))
         }
     }
 }

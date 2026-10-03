@@ -1,17 +1,17 @@
-# 현재 검증 상태 — 0.6.2
+# 현재 검증 상태 — 0.6.3
 
 검증일: 2026-10-03, Asia/Seoul. versionCode 10. 배포 형태는 검증용 debug APK이며 개인 키 release 서명은 별도 단계입니다.
 
 | 항목 | 결과 |
 |---|---|
 | 빌드 | assembleDebug / assembleDebugAndroidTest 통과 |
-| 단위 테스트 | 65개 통과 |
+| 단위 테스트 | 67개 통과 |
 | 전체 Android 테스트 | 15개 통과: 실제 시스템 알림·알림창 분류/복귀, 인식·밝기·오버레이·저장·우선순위 |
 | Lint | 오류 0, 경고 24 |
 | APK 검증 | debug v2 서명, ZIP·네이티브 ELF 16KB 정렬 통과 |
 | 런타임 인터넷 권한 | 없음 |
 | 실기기 | Galaxy SM_S948N / Android 17, 사용자 0.6.0 정상 동작 확인 |
-| 최종 버전 실기기 | 0.6.2 설치 완료; 알림 대기·복귀 재개의 실제 게임 재확인은 별도 |
+| 최종 버전 실기기 | 0.6.3 설치 완료; 알림 대기·복귀 재개의 실제 게임 재확인은 별도 |
 
 상세 변경 검증은 [밝기·오버레이 기록](BRIGHTNESS-OVERLAY.md), [다중 매크로 기록](MULTI-MACRO.md), [OCR 수정 기록](OCR-START-FIX.md)을 참고하세요. 이 문서의 `outputs/` 참조는 로컬 산출물을 뜻하며 APK·진단 로그·스크린샷·빌드 보고서는 Git에 올리지 않습니다. 새로 빌드하면 APK는 `app/build/outputs/apk/debug/app-debug.apk`에 생성됩니다.
 

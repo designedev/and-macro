@@ -71,4 +71,26 @@ class WindowPolicyTest {
         assertFalse(SystemUiPolicy.interrupts(listOf(game,bar.copy(kind=WindowKind.SYSTEM_UI,layer=-1)),content))
     }
 
+    @Test fun galaxyPassiveAccessibilityButtonDoesNotPauseAndStillExcludesClicks() {
+        val content = Box(0f, 112f, 1080f, 2200f)
+        val button = accessibilityButton.copy(kind = WindowKind.SYSTEM_UI, packageName = "com.android.systemui")
+        val status = bar.copy(kind = WindowKind.SYSTEM_UI, packageName = "com.android.systemui")
+        val windows = listOf(game, status, button)
+        assertFalse(SystemUiPolicy.interrupts(windows, content))
+        assertFalse(windows.any { WindowPolicy.blocks(it, game, windows) })
+        assertTrue(WindowPolicy.exclusions(game, windows).contains(button.bounds))
+        assertTrue(SystemUiPolicy.interrupts(listOf(game, button.copy(active = true)), content))
+        assertTrue(SystemUiPolicy.interrupts(listOf(game, button.copy(focused = true)), content))
+        assertTrue(SystemUiPolicy.interrupts(windows + status.copy(id = 700, bounds = Box(20f, 112f, 1060f, 500f)), content))
+    }
+
+    @Test fun landscapeNotificationStillPausesAlongsideCompactSystemControl() {
+        val content = Box(0f, 80f, 2340f, 1080f)
+        val app = game.copy(bounds = content)
+        val button = accessibilityButton.copy(kind = WindowKind.SYSTEM_UI, bounds = Box(2149f, 700f, 2340f, 891f))
+        val banner = bar.copy(kind = WindowKind.SYSTEM_UI, bounds = Box(800f, 80f, 1540f, 400f))
+        assertFalse(SystemUiPolicy.interrupts(listOf(app, button), content))
+        assertTrue(SystemUiPolicy.interrupts(listOf(app, button, banner), content))
+    }
+
 }
