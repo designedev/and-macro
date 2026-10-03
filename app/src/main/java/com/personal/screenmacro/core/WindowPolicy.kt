@@ -1,6 +1,6 @@
 package com.personal.screenmacro.core
 
-enum class WindowKind { APPLICATION, INPUT_METHOD, OTHER }
+enum class WindowKind { APPLICATION, INPUT_METHOD, SYSTEM_UI, OTHER }
 data class WindowLayer(
     val id: Int, val kind: WindowKind, val packageName: String?, val parentId: Int?,
     val layer: Int, val bounds: Box, val active: Boolean = false, val focused: Boolean = false,
@@ -26,10 +26,23 @@ object WindowPolicy {
         return when (window.kind) {
             WindowKind.INPUT_METHOD -> true
             WindowKind.APPLICATION -> !ownedChild(window, target, windows)
-            WindowKind.OTHER -> window.active || window.focused
+            WindowKind.SYSTEM_UI, WindowKind.OTHER -> window.active || window.focused
         }
     }
     fun exclusions(target: WindowLayer, windows: List<WindowLayer>): List<Box> = windows
         .filter { it.id != target.id && !it.ownOverlay && it.layer > target.layer }
         .map { it.bounds }.filter { it.valid() }
+}
+
+/** Notification surfaces may briefly own focus; passive status/navigation bars do not. */
+object SystemUiPolicy {
+    fun interrupts(windows: List<WindowLayer>, content: Box): Boolean {
+        val app = windows.filter { it.kind == WindowKind.APPLICATION && !it.ownOverlay }
+            .firstOrNull { it.focused || it.active }
+        return windows.any { window ->
+            window.kind == WindowKind.SYSTEM_UI && !window.ownOverlay &&
+                (window.active || window.focused ||
+                    (window.bounds.valid() && window.bounds.intersects(content) && (app == null || window.layer > app.layer)))
+        }
+    }
 }

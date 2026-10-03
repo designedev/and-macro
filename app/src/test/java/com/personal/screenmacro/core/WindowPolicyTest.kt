@@ -48,4 +48,27 @@ class WindowPolicyTest {
         val b = panel.copy(id = 549, parentId = a.id)
         assertTrue(WindowPolicy.blocks(a, game, listOf(game, a, b)))
     }
+    @Test fun passiveSystemBarsDoNotPauseButHeadsUpAndShadeDo() {
+        val content=Box(0f,112f,1080f,2200f)
+        val status=bar.copy(kind=WindowKind.SYSTEM_UI,packageName="com.android.systemui")
+        val nav=status.copy(id=561,bounds=Box(0f,2200f,1080f,2340f))
+        assertFalse(SystemUiPolicy.interrupts(listOf(game,status,nav),content))
+        val headsUp=status.copy(bounds=Box(0f,0f,1080f,500f))
+        assertTrue(SystemUiPolicy.interrupts(listOf(game,headsUp,nav),content))
+        assertTrue(SystemUiPolicy.interrupts(listOf(game,status.copy(active=true)),content))
+        assertTrue(SystemUiPolicy.interrupts(listOf(game,status.copy(focused=true)),content))
+        // The underlying game may be absent while the expanded shade covers it.
+        assertTrue(SystemUiPolicy.interrupts(listOf(status.copy(active=true,bounds=game.bounds)),content))
+    }
+    @Test fun unknownSystemWindowsAndForeignAppsAreNotGrantedNotificationException() {
+        val content=Box(0f,112f,1080f,2200f)
+        val unknown=bar.copy(active=true,bounds=game.bounds)
+        assertFalse(SystemUiPolicy.interrupts(listOf(game,unknown),content))
+        assertTrue(WindowPolicy.blocks(unknown,game,listOf(game,unknown)))
+        val foreign=panel.copy(parentId=null,packageName="other.app",active=true,focused=true)
+        assertFalse(SystemUiPolicy.interrupts(listOf(foreign,bar),content))
+        assertTrue(WindowPolicy.blocks(foreign,game,listOf(game,foreign)))
+        assertFalse(SystemUiPolicy.interrupts(listOf(game,bar.copy(kind=WindowKind.SYSTEM_UI,layer=-1)),content))
+    }
+
 }

@@ -3,6 +3,8 @@ package com.personal.screenmacro.accessibility
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Rect
+import android.view.WindowManager
+import android.view.WindowInsets
 import android.graphics.Path
 import android.os.Handler
 import android.os.Looper
@@ -25,20 +27,12 @@ class MacroAccessibilityService : AccessibilityService() {
     private fun rejectWindow(code: String): WindowStamp? { windowIssueCode = code; return null }
     fun windowIssueMessage() = when (windowIssueCode) {
         "OBSTRUCTED" -> "다른 앱의 창이나 키보드를 닫고 다시 시작하세요."
+        "SYSTEM_UI" -> "알림 또는 알림창을 닫고 대상 앱에서 다시 실행하세요."
         "MAGNIFIED" -> "접근성 화면 확대를 해제하고 다시 시작하세요."
         "ROOT_UNAVAILABLE", "ROOT_MISMATCH" -> "활성 앱의 화면 정보를 확인할 수 없습니다. 대상 화면에서 다시 시작하세요."
         else -> "일반 앱 화면으로 이동한 뒤 다시 시작하세요."
     }
-    private fun layer(window: AccessibilityWindowInfo): WindowLayer {
-        val pkg = if (window.type == AccessibilityWindowInfo.TYPE_APPLICATION || window.type == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY) window.root?.packageName?.toString() else null
-        val rect = Rect(); window.getBoundsInScreen(rect)
-        return WindowLayer(window.id, when(window.type) {
-            AccessibilityWindowInfo.TYPE_APPLICATION -> WindowKind.APPLICATION
-            AccessibilityWindowInfo.TYPE_INPUT_METHOD -> WindowKind.INPUT_METHOD
-            else -> WindowKind.OTHER
-        }, pkg, window.parent?.id, window.layer, Box(rect.left.toFloat(), rect.top.toFloat(), rect.right.toFloat(), rect.bottom.toFloat()), window.isActive, window.isFocused,
-            window.type == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY && pkg == packageName)
-    }
+    private fun layer(window: AccessibilityWindowInfo) = accessibilityWindowLayer(window, packageName)
     override fun onServiceConnected() {
         instance = this
         overlay = OverlayController(this)
@@ -48,10 +42,15 @@ class MacroAccessibilityService : AccessibilityService() {
         // Moving/collapsing our trusted panel does not replace the bound game window.
         if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && event.packageName?.toString() != packageName) revision++
         val stamp = applicationWindow()
-        if (CaptureService.instance?.watchingTarget == true && CaptureService.instance?.acceptsWindow(stamp) != true) CaptureService.instance?.stopSession("대상 앱 또는 활성 창이 변경되었습니다. 수동으로 재시작하세요.")
+        if (CaptureService.instance?.watchingTarget == true && CaptureService.instance?.acceptsWindow(stamp) != true && !(windowIssueCode == "SYSTEM_UI" && CaptureService.instance?.canWaitForSystemUi == true)) CaptureService.instance?.stopSession("대상 앱 또는 활성 창이 변경되었습니다. 수동으로 재시작하세요.")
     }
     fun applicationWindow(): WindowStamp? {
         val list = windows
+        val layers = list.map(::layer)
+        val metrics = getSystemService(WindowManager::class.java).maximumWindowMetrics
+        val insets = metrics.windowInsets.getInsetsIgnoringVisibility(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+        val content = Box(insets.left.toFloat(), insets.top.toFloat(), (metrics.bounds.width()-insets.right).toFloat(), (metrics.bounds.height()-insets.bottom).toFloat())
+        if (SystemUiPolicy.interrupts(layers, content)) return rejectWindow("SYSTEM_UI")
         fun ownOverlay(w: AccessibilityWindowInfo) = w.type == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY && w.root?.packageName?.toString() == packageName
         val active = list.firstOrNull { it.isActive }
         val app = if (active != null && ownOverlay(active)) {
@@ -61,7 +60,6 @@ class MacroAccessibilityService : AccessibilityService() {
         val next = if (pkg != null) pkg to app.id else null
         if (identity != next) { identity = next; revision++ }
         if (app == null || pkg == null || !ApplicationPolicy.canAutomate(pkg, packageName)) return rejectWindow("NO_APPLICATION")
-        val layers = list.map(::layer)
         val target = layers.first { it.id == app.id }
         if (layers.any { WindowPolicy.blocks(it, target, layers) }) return rejectWindow("OBSTRUCTED")
         val root = rootInActiveWindow ?: return rejectWindow("ROOT_UNAVAILABLE")

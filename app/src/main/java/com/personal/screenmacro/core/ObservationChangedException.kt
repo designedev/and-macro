@@ -1,4 +1,7 @@
 package com.personal.screenmacro.core
 
-/** The draggable overlay changed during OCR; discard this frame without ending the session. */
+/** The overlay or bound window changed during OCR; discard this frame and retry. */
 class ObservationChangedException : Exception()
+
+/** Wait without counting an OCR error; only a freshly verified frame may resume clicks. */
+class SystemUiInterruptedException : Exception()
