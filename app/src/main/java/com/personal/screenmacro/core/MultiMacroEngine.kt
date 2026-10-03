@@ -99,6 +99,7 @@ class MultiMacroEngine(private val port: MultiEnginePort) {
                     // Never carry another rule's coordinates across a touch. The next loop
                     // obtains a new frame and evaluates the newly eligible rules again.
                 } catch (e: CancellationException) { throw e }
+                catch (_: SystemUiInterruptedException) { preUntil.clear(); port.pause(250) }
                 catch (_: ObservationChangedException) { port.pause(80) }
                 catch (e: Exception) {
                     if (e.message == "SESSION_INVALID") throw e

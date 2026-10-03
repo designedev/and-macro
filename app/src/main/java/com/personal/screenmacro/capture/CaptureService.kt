@@ -30,6 +30,8 @@ class CaptureService : Service() {
     var watchingTarget = false; private set
     private val repository get() = (application as MacroApplication).repository
     private val brightness get() = (application as MacroApplication).brightness
+    val canWaitForSystemUi get() = mode == "RUN" && watchingTarget && !ending
+    private var systemUiWaiting = false
     private val matcher by lazy { Matchers(repository) }
     private var matcherCreated = false
     private val receiver = object : BroadcastReceiver() { override fun onReceive(context: Context?, intent: Intent?) { stopSession("화면이 꺼지거나 잠겼습니다. 수동으로 재시작하세요.") } }
@@ -96,12 +98,33 @@ class CaptureService : Service() {
     }
     private fun live() = !ending && instance === this && geometryValid() &&
         getSystemService(PowerManager::class.java).isInteractive && !getSystemService(KeyguardManager::class.java).isKeyguardLocked
+    private fun checkedWindow(access: MacroAccessibilityService): WindowStamp {
+        val current = access.applicationWindow()
+        if (canWaitForSystemUi && access.windowIssueCode == "SYSTEM_UI") {
+            if (!systemUiWaiting) {
+                systemUiWaiting = true
+                RuntimeStore.log(macro?.id, "SYSTEM_UI_WAIT")
+                RuntimeStore.status.value = RuntimeStatus(EngineState.WATCHING, "알림 대기 · 대상 앱으로 돌아오면 재개", true)
+            }
+            throw SystemUiInterruptedException()
+        }
+        check(current != null && target.matches(current)) { "SESSION_INVALID" }
+        if (systemUiWaiting) {
+            systemUiWaiting = false
+            RuntimeStore.log(macro?.id, "SYSTEM_UI_RESUMED")
+        }
+        return current
+    }
     private fun valid(o: Observation): Boolean {
         val s = source ?: return false
         val match = o.result as? MatchResult.Unique
         val within = match == null || (match.box.valid() && match.box.left >= 0 && match.box.top >= 0 && match.box.right <= o.width && match.box.bottom <= o.height)
-        return live() && o.sessionId == s.sessionId && o.width == s.width && o.height == s.height && o.rotation == s.rotation && within &&
-            target.matches(o.window) && MacroAccessibilityService.instance?.applicationWindow() == o.window
+        if (!live() || o.sessionId != s.sessionId || o.width != s.width || o.height != s.height || o.rotation != s.rotation || !within || !target.matches(o.window)) return false
+        val access = MacroAccessibilityService.instance ?: return false
+        val current = checkedWindow(access)
+        // A transient notification/window revision invalidates coordinates, not the session.
+        if (current != o.window) throw ObservationChangedException()
+        return true
     }
     private suspend fun stableOverlay(access: MacroAccessibilityService): Long {
         while (access.overlay?.interacting == true) { check(live()) { "SESSION_INVALID" }; delay(50) }
@@ -110,20 +133,22 @@ class CaptureService : Service() {
     private fun touchReady(o: Observation): Boolean {
         val overlay = MacroAccessibilityService.instance?.overlay
         return overlay?.interacting != true && (overlay?.revision ?: 0) == o.overlayRevision &&
-            valid(o) && o.isFresh(SystemClock.elapsedRealtime()) && watchingTarget
+            runCatching { valid(o) }.getOrDefault(false) && o.isFresh(SystemClock.elapsedRealtime()) && watchingTarget
     }
     private suspend fun observe(m: Macro, preview: Boolean = false): RecognizedFrame {
         check(live()) { "SESSION_INVALID" }
         val access = MacroAccessibilityService.instance ?: error("SESSION_INVALID")
         val overlayRevision = stableOverlay(access)
-        val window = access.applicationWindow() ?: error("SESSION_INVALID")
-        check(target.matches(window)) { "SESSION_INVALID" }
+        val window = checkedWindow(access)
         val s = source ?: error("SESSION_INVALID")
         if (m.type == RecognitionType.IMAGE) check(m.referenceWidth == s.width && m.referenceHeight == s.height && m.referenceRotation == s.rotation) { "기준 이미지 등록 당시 화면 크기·방향과 다릅니다. 재등록하세요." }
-        val frame = s.fresh(window)
+        val frame = try { s.fresh(window) }
+        catch (e: CancellationException) { throw e }
+        catch (e: Exception) { checkedWindow(access); throw e }
         var retain = false
         try {
-            check(live() && access.applicationWindow() == window) { "SESSION_INVALID" }
+            check(live()) { "SESSION_INVALID" }
+            if (checkedWindow(access) != window) throw ObservationChangedException()
             val excluded = access.exclusions(s.width, s.height)
             val start = SystemClock.elapsedRealtime()
             matcherCreated = true
@@ -145,15 +170,17 @@ class CaptureService : Service() {
         check(live()) { "SESSION_INVALID" }
         val access = MacroAccessibilityService.instance ?: error("SESSION_INVALID")
         val overlayRevision = stableOverlay(access)
-        val window = access.applicationWindow() ?: error("SESSION_INVALID")
-        check(target.matches(window)) { "SESSION_INVALID" }
+        val window = checkedWindow(access)
         val s = source ?: error("SESSION_INVALID")
         rules.filter { it.type == RecognitionType.IMAGE }.forEach {
             check(it.referenceWidth == s.width && it.referenceHeight == s.height && it.referenceRotation == s.rotation) { "기준 이미지 등록 당시 화면 크기·방향과 다릅니다. 재등록하세요." }
         }
-        val frame = s.fresh(window)
+        val frame = try { s.fresh(window) }
+        catch (e: CancellationException) { throw e }
+        catch (e: Exception) { checkedWindow(access); throw e }
         try {
-            check(live() && access.applicationWindow() == window) { "SESSION_INVALID" }
+            check(live()) { "SESSION_INVALID" }
+            if (checkedWindow(access) != window) throw ObservationChangedException()
             val excluded = access.exclusions(s.width, s.height)
             val started = SystemClock.elapsedRealtime()
             matcherCreated = true

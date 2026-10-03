@@ -70,6 +70,7 @@ class MacroEngine(private val port: EnginePort) {
                     schedule.completed(port.now())
                     port.log(if (success) "GESTURE_COMPLETED" else "GESTURE_CANCELLED")
                 } catch (cancel: CancellationException) { throw cancel }
+                catch (_: SystemUiInterruptedException) { port.pause(250) }
                 catch (_: ObservationChangedException) { port.pause(80) }
                 catch (e: Exception) {
                     if (e.message == "SESSION_INVALID") throw e

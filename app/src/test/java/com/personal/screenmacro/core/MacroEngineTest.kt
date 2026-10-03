@@ -18,6 +18,8 @@ class MacroEngineTest {
         var latency = 80L
         var observations = 0
         var overlayChanges = 0
+        var notificationPauses = 0
+        var notificationAtValidation = 0
         var recognitionDelay = 0L
         val recognitionDelays = mutableListOf<Long>()
         val logs = mutableListOf<String>()
@@ -25,6 +27,7 @@ class MacroEngineTest {
         override fun now() = scheduler.currentTime
         override suspend fun pause(ms: Long) { delay(ms) }
         override suspend fun observe(macro: Macro): Observation {
+            if (notificationPauses > 0) { notificationPauses--; throw SystemUiInterruptedException() }
             if (overlayChanges > 0) { overlayChanges--; throw ObservationChangedException() }
             observations++
             val frameTime = now()
@@ -32,7 +35,10 @@ class MacroEngineTest {
             val match = if (ambiguous) MatchResult.Ambiguous(2) else if (exists) MatchResult.Unique(Box(10f, 20f, 30f, 40f)) else MatchResult.Absent
             return Observation("session", frameTime, 100, 100, 0, WindowStamp("com.example.target", 1, 1), match)
         }
-        override fun valid(observation: Observation) = alive
+        override fun valid(observation: Observation): Boolean {
+            if (notificationAtValidation > 0) { notificationAtValidation--; throw SystemUiInterruptedException() }
+            return alive
+        }
         override suspend fun tap(observation: Observation, onDelivery: (Long) -> Unit): Boolean {
             beforeTap?.invoke()
             currentCoroutineContext().ensureActive()
@@ -156,4 +162,24 @@ class MacroEngineTest {
         assertTrue(p.deliveries.isNotEmpty()); assertFalse(p.logs.contains("RECOGNITION_ERROR"))
         job.cancelAndJoin()
     }
+    @Test fun notificationWaitDoesNotBecomeThreeRecognitionErrorsAndResumesFresh() = runTest {
+        val p=FakePort(testScheduler); p.notificationPauses=8
+        val job=launch { MacroEngine(p).run(macro) }
+        advanceTimeBy(1900); runCurrent(); assertTrue(p.deliveries.isEmpty())
+        advanceTimeBy(3000); runCurrent(); job.cancelAndJoin()
+        assertTrue(p.deliveries.isNotEmpty())
+        assertTrue(p.deliveries.all { it>=2000 })
+        assertFalse(p.logs.contains("RECOGNITION_ERROR"))
+    }
+    @Test fun notificationDuringResultValidationDiscardsItAndCancellationStopsWaiting() = runTest {
+        val p=FakePort(testScheduler); p.notificationAtValidation=4
+        val job=launch { MacroEngine(p).run(macro) }
+        advanceTimeBy(900); runCurrent(); assertTrue(p.deliveries.isEmpty())
+        advanceTimeBy(1600); runCurrent(); assertTrue(p.deliveries.isNotEmpty())
+        p.notificationPauses=100
+        job.cancelAndJoin(); val count=p.deliveries.size
+        advanceTimeBy(5000); assertEquals(count,p.deliveries.size)
+        assertFalse(p.logs.contains("RECOGNITION_ERROR"))
+    }
+
 }
