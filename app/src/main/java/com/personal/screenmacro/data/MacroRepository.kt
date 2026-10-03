@@ -106,6 +106,15 @@ class MacroRepository(context: Context, private val busy: () -> Boolean) {
         file(path).outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
         path
     }
-    suspend fun bitmap(path: String): Bitmap = withContext(Dispatchers.IO) { BitmapFactory.decodeFile(file(path).absolutePath) ?: error("기준 이미지를 읽을 수 없습니다.") }
+    suspend fun bitmap(path: String): Bitmap {
+        val ownership = ResourceHandoff<Bitmap> { it.recycle() }
+        try {
+            withContext(Dispatchers.IO) {
+                val bitmap = BitmapFactory.decodeFile(file(path).absolutePath) ?: error("기준 이미지를 읽을 수 없습니다.")
+                ownership.offer(bitmap)
+            }
+            return ownership.take()
+        } finally { ownership.close() }
+    }
     fun discard(path: String) { file(path).delete() }
 }
