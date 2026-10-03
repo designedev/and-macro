@@ -56,7 +56,7 @@ class CaptureService : Service() {
             notificationManager.createNotificationChannel(NotificationChannel("capture", "매크로 실행", NotificationManager.IMPORTANCE_LOW))
             val stop = PendingIntent.getService(this, 0, Intent(this, CaptureService::class.java).setAction("STOP"), PendingIntent.FLAG_IMMUTABLE)
             val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
-            val notification = NotificationCompat.Builder(this, "capture").setSmallIcon(R.drawable.ic_macro).setContentTitle("화면 매크로")
+            val notification = NotificationCompat.Builder(this, "capture").setSmallIcon(R.drawable.ic_macro).setContentTitle("AUTO")
                 .setContentText("화면 캡처 중 · 오버레이에서 실행 또는 정지").setContentIntent(open).setOngoing(true).addAction(0, "정지", stop).build()
             startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
             val access = MacroAccessibilityService.instance ?: error("접근성 서비스를 활성화하세요.")

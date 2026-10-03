@@ -23,6 +23,7 @@ class MainActivity : ComponentActivity() {
     private var requestedIds = arrayListOf<String>()
     private var message by mutableStateOf<String?>(null)
     private var brightnessAllowed by mutableStateOf(false)
+    private var notificationsAllowed by mutableStateOf(false)
     private var awaitingBrightness = false
     private val brightnessSettings = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         refreshBrightness()
@@ -33,6 +34,7 @@ class MainActivity : ComponentActivity() {
         }
     }
     private val notifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        notificationsAllowed = granted
         if (!granted) message = "알림 표시가 제한됩니다. 실행 중 오버레이 정지 버튼을 사용하세요."
     }
     private val capture = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -53,7 +55,7 @@ class MainActivity : ComponentActivity() {
                     onDismissMessage = { message = null },
                     onAccessibility = { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
                     onNotification = { notifications.launch(Manifest.permission.POST_NOTIFICATIONS) },
-                    notificationGranted = { checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED },
+                    notificationGranted = { notificationsAllowed },
                     brightnessGranted = brightnessAllowed,
                     onBrightness = { openBrightnessSettings() },
                     onCapture = { mode, ids -> requestCapture(mode, ids) })
@@ -87,6 +89,7 @@ class MainActivity : ComponentActivity() {
             .onFailure { awaitingBrightness = false; message = "시스템 설정 변경 화면을 열 수 없습니다. 앱의 특별 접근 권한에서 허용하세요." }
     }
     private fun refreshBrightness() {
+        notificationsAllowed = checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         brightnessAllowed = Settings.System.canWrite(this)
         val brightness = (application as MacroApplication).brightness
         if (CaptureService.instance == null && !RuntimeStore.status.value.busy && brightness.pending) {
