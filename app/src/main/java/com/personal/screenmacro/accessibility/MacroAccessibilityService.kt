@@ -23,6 +23,7 @@ class MacroAccessibilityService : AccessibilityService() {
     private var revision = 0L
     private var identity: Pair<String, Int>? = null
     private var gesturePending = false
+    private var lastWindowDiagnostic: String? = null
     var windowIssueCode = "NONE"; private set
     private fun rejectWindow(code: String): WindowStamp? { windowIssueCode = code; return null }
     fun windowIssueMessage() = when (windowIssueCode) {
@@ -37,6 +38,7 @@ class MacroAccessibilityService : AccessibilityService() {
         instance = this
         overlay = OverlayController(this)
         RuntimeStore.accessibilityConnected.value = true
+        applicationWindow()
     }
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         // Moving/collapsing our trusted panel does not replace the bound game window.
@@ -50,6 +52,14 @@ class MacroAccessibilityService : AccessibilityService() {
         val metrics = getSystemService(WindowManager::class.java).maximumWindowMetrics
         val insets = metrics.windowInsets.getInsetsIgnoringVisibility(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
         val content = Box(insets.left.toFloat(), insets.top.toFloat(), (metrics.bounds.width()-insets.right).toFloat(), (metrics.bounds.height()-insets.bottom).toFloat())
+        if (com.personal.screenmacro.BuildConfig.DEBUG) {
+            val diagnostic = "WINDOW_CHECK content=$content interrupted=${SystemUiPolicy.interrupts(layers, content)} " +
+                layers.joinToString { "id=${it.id} kind=${it.kind} bounds=${it.bounds} active=${it.active} focused=${it.focused}" }
+            if (diagnostic != lastWindowDiagnostic) {
+                lastWindowDiagnostic = diagnostic
+                android.util.Log.i("ScreenMacro", diagnostic)
+            }
+        }
         if (SystemUiPolicy.interrupts(layers, content)) return rejectWindow("SYSTEM_UI")
         fun ownOverlay(w: AccessibilityWindowInfo) = w.type == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY && w.root?.packageName?.toString() == packageName
         val active = list.firstOrNull { it.isActive }

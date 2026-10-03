@@ -45,8 +45,7 @@ object SystemUiPolicy {
             // Focused/active system windows still pause regardless of their size.
             val compactLimit = minOf(content.right - content.left, content.bottom - content.top) / 4f
             val compactFloatingControl = window.bounds.valid() &&
-                window.bounds.right - window.bounds.left <= compactLimit &&
-                window.bounds.bottom - window.bounds.top <= compactLimit
+                window.bounds.right - window.bounds.left <= compactLimit
             window.kind == WindowKind.SYSTEM_UI && !window.ownOverlay &&
                 (window.active || window.focused ||
                     (!compactFloatingControl && window.bounds.valid() && window.bounds.intersects(content) && (app == null || window.layer > app.layer)))

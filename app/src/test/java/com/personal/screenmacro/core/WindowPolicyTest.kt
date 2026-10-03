@@ -92,5 +92,12 @@ class WindowPolicyTest {
         assertFalse(SystemUiPolicy.interrupts(listOf(app, button), content))
         assertTrue(SystemUiPolicy.interrupts(listOf(app, button, banner), content))
     }
+    @Test fun galaxyTallNarrowSystemControlDoesNotPause() {
+        val content = Box(0f, 112f, 1080f, 2200f)
+        val control = accessibilityButton.copy(kind = WindowKind.SYSTEM_UI, bounds = Box(978f, 955f, 1080f, 1248f))
+        assertFalse(SystemUiPolicy.interrupts(listOf(game, control), content))
+        assertTrue(WindowPolicy.exclusions(game, listOf(game, control)).contains(control.bounds))
+        assertTrue(SystemUiPolicy.interrupts(listOf(game, control.copy(active = true)), content))
+    }
 
 }
