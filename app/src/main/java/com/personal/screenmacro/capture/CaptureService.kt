@@ -30,8 +30,11 @@ class CaptureService : Service() {
     var watchingTarget = false; private set
     private val repository get() = (application as MacroApplication).repository
     private val brightness get() = (application as MacroApplication).brightness
-    val canWaitForSystemUi get() = mode == "RUN" && watchingTarget && !ending
-    private var systemUiWaiting = false
+    private val canWaitForTransientWindow get() = mode == "RUN" && watchingTarget && !ending
+    fun canWaitForWindow(access: MacroAccessibilityService): Boolean = canWaitForTransientWindow &&
+        (access.windowIssueCode == "SYSTEM_UI" ||
+            (access.windowIssueCode == "KEYBOARD" && target.matches(access.interruptedWindow)))
+    private var waitingReason: String? = null
     private val matcher by lazy { Matchers(repository) }
     private var matcherCreated = false
     private val receiver = object : BroadcastReceiver() { override fun onReceive(context: Context?, intent: Intent?) { stopSession("화면이 꺼지거나 잠겼습니다. 수동으로 재시작하세요.") } }
@@ -100,18 +103,20 @@ class CaptureService : Service() {
         getSystemService(PowerManager::class.java).isInteractive && !getSystemService(KeyguardManager::class.java).isKeyguardLocked
     private fun checkedWindow(access: MacroAccessibilityService): WindowStamp {
         val current = access.applicationWindow()
-        if (canWaitForSystemUi && access.windowIssueCode == "SYSTEM_UI") {
-            if (!systemUiWaiting) {
-                systemUiWaiting = true
-                RuntimeStore.log(macro?.id, "SYSTEM_UI_WAIT")
-                RuntimeStore.status.value = RuntimeStatus(EngineState.WATCHING, "알림 대기 · 대상 앱으로 돌아오면 재개", true)
+        if (canWaitForWindow(access)) {
+            val reason = access.windowIssueCode
+            if (waitingReason != reason) {
+                waitingReason = reason
+                RuntimeStore.log(macro?.id, "${reason}_WAIT")
+                val message = if (reason == "KEYBOARD") "키보드 대기 · 닫으면 재개" else "알림 대기 · 대상 앱으로 돌아오면 재개"
+                RuntimeStore.status.value = RuntimeStatus(EngineState.WATCHING, message, true)
             }
-            throw SystemUiInterruptedException()
+            throw TransientWindowInterruptedException()
         }
         check(current != null && target.matches(current)) { "SESSION_INVALID" }
-        if (systemUiWaiting) {
-            systemUiWaiting = false
-            RuntimeStore.log(macro?.id, "SYSTEM_UI_RESUMED")
+        waitingReason?.let { reason ->
+            waitingReason = null
+            RuntimeStore.log(macro?.id, "${reason}_RESUMED")
         }
         return current
     }

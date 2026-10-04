@@ -100,4 +100,22 @@ class WindowPolicyTest {
         assertTrue(SystemUiPolicy.interrupts(listOf(game, control.copy(active = true)), content))
     }
 
+    @Test fun visibleKeyboardPausesEvenWithoutActiveOrFocusedFlags() {
+        val keyboard = bar.copy(kind = WindowKind.INPUT_METHOD, bounds = Box(0f, 1575f, 1080f, 2340f))
+        assertTrue(KeyboardPolicy.visible(keyboard, game, Box(0f, 112f, 1080f, 2298f)))
+        assertTrue(WindowPolicy.blocks(keyboard, game, listOf(game, keyboard)))
+    }
+    @Test fun openingAndClosingKeyboardOutsideUsableScreenDoesNotPause() {
+        val content = Box(0f, 112f, 1080f, 2298f)
+        val keyboard = bar.copy(kind = WindowKind.INPUT_METHOD, bounds = Box(0f, 2315f, 1080f, 3080f))
+        assertFalse(KeyboardPolicy.visible(keyboard, game, content))
+        assertFalse(KeyboardPolicy.visible(keyboard.copy(bounds = Box(0f, 2400f, 1080f, 3165f)), game, content))
+        assertFalse(WindowPolicy.blocks(keyboard.copy(bounds = Box(0f, 2400f, 1080f, 3165f)), game, listOf(game, keyboard)))
+    }
+    @Test fun invalidOrBehindAppKeyboardDoesNotPause() {
+        val keyboard = bar.copy(kind = WindowKind.INPUT_METHOD, bounds = Box(0f, 1500f, 1080f, 2340f))
+        assertFalse(KeyboardPolicy.visible(keyboard.copy(layer = -1), game, game.bounds))
+        assertFalse(KeyboardPolicy.visible(keyboard.copy(bounds = Box(0f, 0f, 0f, 0f)), game, game.bounds))
+    }
+
 }

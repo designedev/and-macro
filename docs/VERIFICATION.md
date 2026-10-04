@@ -1,19 +1,19 @@
-# 현재 검증 상태 — 0.7.0
+# 현재 검증 상태 — 0.7.1
 
-검증일: 2026-10-03, Asia/Seoul. versionCode 14. 배포 형태는 검증용 debug APK이며 개인 키 release 서명은 별도 단계입니다.
+검증일: 2026-10-04, Asia/Seoul. versionCode 15. 배포 형태는 검증용 debug APK이며 개인 키 release 서명은 별도 단계입니다.
 
 | 항목 | 결과 |
 |---|---|
 | 빌드 | assembleDebug / assembleDebugAndroidTest 통과 |
-| 단위 테스트 | 73개 통과 |
-| 전체 Android 테스트 | 19개 통과: 실제 시스템 알림·알림창 분류/복귀, 인식·밝기·오버레이·저장·우선순위 |
+| 단위 테스트 | 76개 통과 |
+| 전체 Android 테스트 | 20개 통과: 실제 시스템 알림·알림창·키보드 분류/복귀, 인식·밝기·오버레이·저장·우선순위 |
 | Lint | 오류 0, 경고 25 |
 | APK 검증 | debug v2 서명, ZIP·네이티브 ELF 16KB 정렬 통과 |
 | 런타임 인터넷 권한 | 없음 |
 | 실기기 | Galaxy SM_S948N / Android 17, 사용자 0.6.4 정상 동작 확인 |
-| 최종 버전 실기기 | AUTO 0.7.0 설치·앱 실행 확인; 최적화 후 장시간 게임 메모리 검증은 별도 |
+| 최종 버전 실기기 | AUTO 0.7.1 설치·앱 실행 확인; 게임 키보드 대기·재개와 장시간 인식 검증은 사용자 재시험 필요 |
 
-상세 변경 검증은 [밝기·오버레이 기록](BRIGHTNESS-OVERLAY.md), [다중 매크로 기록](MULTI-MACRO.md), [OCR 수정 기록](OCR-START-FIX.md)을 참고하세요. 이 문서의 `outputs/` 참조는 로컬 산출물을 뜻하며 APK·진단 로그·스크린샷·빌드 보고서는 Git에 올리지 않습니다. 새로 빌드하면 APK는 `app/build/outputs/apk/debug/app-debug.apk`에 생성됩니다.
+키보드 종료 원인과 수정 범위는 [키보드 대기 기록](KEYBOARD-PAUSE.md)을 참고하세요. 상세 변경 검증은 [밝기·오버레이 기록](BRIGHTNESS-OVERLAY.md), [다중 매크로 기록](MULTI-MACRO.md), [OCR 수정 기록](OCR-START-FIX.md)을 참고하세요. 이 문서의 `outputs/` 참조는 로컬 산출물을 뜻하며 APK·진단 로그·스크린샷·빌드 보고서는 Git에 올리지 않습니다. 새로 빌드하면 APK는 `app/build/outputs/apk/debug/app-debug.apk`에 생성됩니다.
 
 ---
 

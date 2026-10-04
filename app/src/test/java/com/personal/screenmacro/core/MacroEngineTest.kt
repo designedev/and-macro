@@ -27,7 +27,7 @@ class MacroEngineTest {
         override fun now() = scheduler.currentTime
         override suspend fun pause(ms: Long) { delay(ms) }
         override suspend fun observe(macro: Macro): Observation {
-            if (notificationPauses > 0) { notificationPauses--; throw SystemUiInterruptedException() }
+            if (notificationPauses > 0) { notificationPauses--; throw TransientWindowInterruptedException() }
             if (overlayChanges > 0) { overlayChanges--; throw ObservationChangedException() }
             observations++
             val frameTime = now()
@@ -36,7 +36,7 @@ class MacroEngineTest {
             return Observation("session", frameTime, 100, 100, 0, WindowStamp("com.example.target", 1, 1), match)
         }
         override fun valid(observation: Observation): Boolean {
-            if (notificationAtValidation > 0) { notificationAtValidation--; throw SystemUiInterruptedException() }
+            if (notificationAtValidation > 0) { notificationAtValidation--; throw TransientWindowInterruptedException() }
             return alive
         }
         override suspend fun tap(observation: Observation, onDelivery: (Long) -> Unit): Boolean {
