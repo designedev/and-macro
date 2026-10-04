@@ -4,4 +4,4 @@ package com.personal.screenmacro.core
 class ObservationChangedException : Exception()
 
 /** Wait without counting an OCR error; only a freshly verified frame may resume clicks. */
-class SystemUiInterruptedException : Exception()
+class TransientWindowInterruptedException : Exception()

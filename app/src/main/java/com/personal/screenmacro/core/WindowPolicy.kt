@@ -24,7 +24,7 @@ object WindowPolicy {
     fun blocks(window: WindowLayer, target: WindowLayer, windows: List<WindowLayer>): Boolean {
         if (window.id == target.id || window.ownOverlay) return false
         return when (window.kind) {
-            WindowKind.INPUT_METHOD -> true
+            WindowKind.INPUT_METHOD -> KeyboardPolicy.visible(window, target, target.bounds)
             WindowKind.APPLICATION -> !ownedChild(window, target, windows)
             WindowKind.SYSTEM_UI, WindowKind.OTHER -> window.active || window.focused
         }
@@ -51,4 +51,11 @@ object SystemUiPolicy {
                     (!compactFloatingControl && window.bounds.valid() && window.bounds.intersects(content) && (app == null || window.layer > app.layer)))
         }
     }
+}
+
+/** Only an input-method surface above the app and inside usable screen space pauses clicks. */
+object KeyboardPolicy {
+    fun visible(window: WindowLayer, target: WindowLayer, content: Box): Boolean =
+        window.kind == WindowKind.INPUT_METHOD && !window.ownOverlay &&
+            window.layer > target.layer && window.bounds.valid() && window.bounds.intersects(content)
 }

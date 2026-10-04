@@ -26,9 +26,11 @@ class MacroAccessibilityService : AccessibilityService() {
     private var lastDiagnosticContent: Box? = null
     private var lastDiagnosticLayers: List<WindowLayer>? = null
     var windowIssueCode = "NONE"; private set
+    var interruptedWindow: WindowStamp? = null; private set
     private fun rejectWindow(code: String): WindowStamp? { windowIssueCode = code; return null }
     fun windowIssueMessage() = when (windowIssueCode) {
-        "OBSTRUCTED" -> "다른 앱의 창이나 키보드를 닫고 다시 시작하세요."
+        "OBSTRUCTED" -> "다른 앱의 창을 닫고 다시 시작하세요."
+        "KEYBOARD" -> "키보드를 닫고 대상 앱에서 다시 실행하세요."
         "SYSTEM_UI" -> "알림 또는 알림창을 닫고 대상 앱에서 다시 실행하세요."
         "MAGNIFIED" -> "접근성 화면 확대를 해제하고 다시 시작하세요."
         "ROOT_UNAVAILABLE", "ROOT_MISMATCH" -> "활성 앱의 화면 정보를 확인할 수 없습니다. 대상 화면에서 다시 시작하세요."
@@ -45,9 +47,10 @@ class MacroAccessibilityService : AccessibilityService() {
         // Moving/collapsing our trusted panel does not replace the bound game window.
         if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && event.packageName?.toString() != packageName) revision++
         val stamp = applicationWindow()
-        if (CaptureService.instance?.watchingTarget == true && CaptureService.instance?.acceptsWindow(stamp) != true && !(windowIssueCode == "SYSTEM_UI" && CaptureService.instance?.canWaitForSystemUi == true)) CaptureService.instance?.stopSession("대상 앱 또는 활성 창이 변경되었습니다. 수동으로 재시작하세요.")
+        if (CaptureService.instance?.watchingTarget == true && CaptureService.instance?.acceptsWindow(stamp) != true && CaptureService.instance?.canWaitForWindow(this) != true) CaptureService.instance?.stopSession("대상 앱 또는 활성 창이 변경되었습니다. 수동으로 재시작하세요.")
     }
     fun applicationWindow(): WindowStamp? {
+        interruptedWindow = null
         val list = windows
         val layers = list.map(::layer)
         val metrics = getSystemService(WindowManager::class.java).maximumWindowMetrics
@@ -63,7 +66,7 @@ class MacroAccessibilityService : AccessibilityService() {
         if (interrupted) return rejectWindow("SYSTEM_UI")
         fun ownOverlay(w: AccessibilityWindowInfo) = w.type == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY && w.root?.packageName?.toString() == packageName
         val active = list.firstOrNull { it.isActive }
-        val app = if (active != null && ownOverlay(active)) {
+        val app = if (active != null && (ownOverlay(active) || active.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD)) {
             list.firstOrNull { it.isFocused && it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
         } else active?.takeIf { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
         val pkg = app?.root?.packageName?.toString()
@@ -71,7 +74,12 @@ class MacroAccessibilityService : AccessibilityService() {
         if (identity != next) { identity = next; revision++ }
         if (app == null || pkg == null || !ApplicationPolicy.canAutomate(pkg, packageName)) return rejectWindow("NO_APPLICATION")
         val target = layers.first { it.id == app.id }
-        if (layers.any { WindowPolicy.blocks(it, target, layers) }) return rejectWindow("OBSTRUCTED")
+        // A foreign app still ends the session, even when an IME is also present.
+        if (layers.any { it.kind != WindowKind.INPUT_METHOD && WindowPolicy.blocks(it, target, layers) }) return rejectWindow("OBSTRUCTED")
+        if (layers.any { KeyboardPolicy.visible(it, target, content) }) {
+            interruptedWindow = WindowStamp(pkg, app.id, revision)
+            return rejectWindow("KEYBOARD")
+        }
         val root = rootInActiveWindow ?: return rejectWindow("ROOT_UNAVAILABLE")
         val rootIsOwnOverlay = active != null && ownOverlay(active) && root.packageName?.toString() == packageName
         if (!rootIsOwnOverlay && (root.packageName?.toString() != pkg || root.windowId != app.id)) return rejectWindow("ROOT_MISMATCH")

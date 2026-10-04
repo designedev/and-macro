@@ -29,7 +29,7 @@ class MultiMacroEngineTest {
         override fun now() = clock.currentTime
         override suspend fun pause(ms: Long) { delay(ms) }
         override suspend fun observe(macros: List<Macro>): Map<String, Observation> {
-            if (notificationPauses > 0) { notificationPauses--; throw SystemUiInterruptedException() }
+            if (notificationPauses > 0) { notificationPauses--; throw TransientWindowInterruptedException() }
             if (overlayChanges > 0) { overlayChanges--; throw ObservationChangedException() }
             if (failRecognition) error("frame timeout")
             observations++
@@ -38,7 +38,7 @@ class MultiMacroEngineTest {
                 WindowStamp("com.example", 1, 1), results[it.id] ?: MatchResult.Unique(Box(10f, 10f, 30f, 30f))) }
         }
         override fun valid(observation: Observation): Boolean {
-            if (notificationAtValidation > 0) { notificationAtValidation--; throw SystemUiInterruptedException() }
+            if (notificationAtValidation > 0) { notificationAtValidation--; throw TransientWindowInterruptedException() }
             return alive
         }
         override suspend fun tap(macro: Macro, observation: Observation, onDelivery: (Long) -> Unit): Boolean {
