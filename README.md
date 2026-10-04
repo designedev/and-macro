@@ -1,8 +1,10 @@
-# 화면 매크로 (and-macro)
+# AUTO (and-macro)
 
-개인용 Android 화면 인식·자동 터치 앱입니다. 현재 버전은 **0.6.4 (versionCode 12)**이며 Android 16(API 36) 이상, 64비트 단말기를 지원합니다. 특정 게임이나 패키지로 대상을 제한하지 않습니다. 사용자가 캡처에 동의하고 대상 앱으로 이동한 뒤 실행합니다.
+개인용 Android 화면 인식·자동 터치 앱입니다. 현재 버전은 **0.7.0 (versionCode 14)**이며 Android 16(API 36) 이상, 64비트 단말기를 지원합니다. 특정 게임이나 패키지로 대상을 제한하지 않습니다. 사용자가 캡처에 동의하고 대상 앱으로 이동한 뒤 실행합니다.
 
 ## 주요 기능
+
+- 접근성·알림·밝기·도움말을 한 줄 아이콘으로 표시. 권한 허용은 민트색, 미허용은 회색+빗금. 길게 누르면 항목·상태 안내. 네이비·민트 A/재생 형태의 adaptive·테마 아이콘.
 
 - 한국어·영어 OCR 문구의 정확 일치/포함 일치 또는 기준 이미지 비교로 대상 검출.
 - 여러 매크로 동시 감시, 목록 드래그 우선순위, 매크로별 클릭 간격·전후 대기.
@@ -48,7 +50,7 @@ python3 scripts/verify_apk.py app/build/outputs/apk/debug/app-debug.apk
 
 ## 검증 상태
 
-2026-10-03 기준 단위 테스트 68개, 전체 Android 테스트 15개 통과. 실제 시스템 상단 알림·펼친 알림창 분류와 원래 창 복귀를 검증했습니다. Lint는 오류 0·경고 24개입니다. 실제 Galaxy Android 17 기기에서 사용자가 0.6.0 정상 동작을 확인했고, 최종 0.6.4를 설치했습니다. 알림 일시 대기·복귀 후 재개의 실제 Galaxy 게임 확인은 별도입니다.
+2026-10-03 기준 단위 테스트 73개, 전체 Android 테스트 19개 통과. 실제 시스템 상단 알림·펼친 알림창 분류와 원래 창 복귀를 검증했습니다. Lint는 오류 0·경고 25개입니다. 실제 Galaxy Android 17 기기에서 사용자가 0.6.4 정상 동작을 확인했고, 최종 0.7.0을 설치했습니다. 0.6.5 최적화 후 장시간 실제 Galaxy 사용 검증은 별도입니다.
 
 자세한 내용은 [검증 기록](docs/VERIFICATION.md)과 [밝기·오버레이 변경 기록](docs/BRIGHTNESS-OVERLAY.md)에 있습니다. 문서에서 참조하는 `outputs/`는 로컬 빌드·시험 산출물이며 Git에서 제외합니다. APK 배포와 GitHub Release는 아직 생성하지 않았습니다.
 
@@ -67,3 +69,5 @@ python3 scripts/verify_apk.py app/build/outputs/apk/debug/app-debug.apk
 전체 화면은 메모리에서 처리하고 기준 이미지 자르기를 적용했을 때만 해당 이미지를 저장합니다. 실행 로그에는 OCR 원문·화면 이미지를 기록하지 않습니다. 최근 1,000건을 메모리에 유지하며 프로세스 종료 시 사라집니다. debug 빌드는 상태·처리 시간·오류·제스처 전달을 Logcat에도 기록합니다. 앱 백업은 비활성화되어 있으며 삭제하면 설정과 이미지가 사라집니다. 개인 키 전환과 업데이트는 [서명 안내](docs/SIGNING.md)를 참고하세요.
 
 변경 기록: [패키지 제한 제거](docs/PACKAGE-RESTRICTION-REMOVAL.md), [OCR·활성 창 수정](docs/OCR-START-FIX.md), [다중 매크로](docs/MULTI-MACRO.md), [Galaxy 게임 모드 조사](docs/GALAXY-GAME-DIMMING.md), [밝기·이동형 카드](docs/BRIGHTNESS-OVERLAY.md).
+
+0.6.5 메모리 자원 회수·반복 할당 최적화와 검증 범위는 [메모리 검토 기록](docs/MEMORY-REVIEW.md)을 참고하세요.

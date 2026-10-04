@@ -11,6 +11,7 @@ import android.os.HandlerThread
 import android.os.SystemClock
 import com.personal.screenmacro.core.WindowStamp
 import com.personal.screenmacro.core.awaitFreshFrame
+import com.personal.screenmacro.core.ResourceHandoff
 import com.personal.screenmacro.RuntimeStore
 import kotlinx.coroutines.CompletableDeferred
 import java.util.UUID
@@ -29,7 +30,10 @@ class ScreenCaptureSource(
     private var reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
     private var display: VirtualDisplay? = null
     private val lock = Any()
-    private var request: Pair<CompletableDeferred<Frame>, WindowStamp>? = null
+    private class Request(val deferred: CompletableDeferred<Frame>, val window: WindowStamp) {
+        val ownership = ResourceHandoff<Frame> { it.bitmap.recycle() }
+    }
+    private var request: Request? = null
     private val callback = object : MediaProjection.Callback() {
         override fun onStop() { stopped("화면 캡처가 종료되었습니다. 다시 동의하고 시작하세요.") }
         override fun onCapturedContentResize(w: Int, h: Int) {
@@ -58,7 +62,7 @@ class ScreenCaptureSource(
                 synchronized(lock) {
                     val pending = request ?: return@synchronized
                     request = null
-                    if (!active || !pending.first.isActive) return@synchronized
+                    if (!active || !pending.deferred.isActive) return@synchronized
                     try {
                         val plane = image.planes[0]
                         check(plane.pixelStride == 4) { "지원하지 않는 캡처 형식" }
@@ -69,9 +73,10 @@ class ScreenCaptureSource(
                             Bitmap.createBitmap(padded, 0, 0, width, height)
                         } catch (e: Exception) { padded.recycle(); throw e }
                         if (bitmap !== padded) padded.recycle()
-                        val frame = Frame(bitmap, SystemClock.elapsedRealtime(), sessionId, rotation, pending.second)
-                        if (!pending.first.complete(frame)) bitmap.recycle()
-                    } catch (e: Exception) { pending.first.completeExceptionally(e) }
+                        val frame = Frame(bitmap, SystemClock.elapsedRealtime(), sessionId, rotation, pending.window)
+                        pending.ownership.offer(frame)
+                        if (!pending.deferred.complete(frame)) pending.ownership.close()
+                    } catch (e: Exception) { pending.deferred.completeExceptionally(e) }
                 }
             }
         }, worker)
@@ -79,24 +84,29 @@ class ScreenCaptureSource(
     suspend fun fresh(window: WindowStamp): Frame {
         check(active && sizeConfirmed) { "전체 화면 캡처 좌표가 확정되지 않았습니다." }
         val deferred = CompletableDeferred<Frame>()
+        val pending = Request(deferred, window)
         worker.post {
             synchronized(lock) {
                 if (!active || !deferred.isActive) { deferred.cancel(); return@synchronized }
                 runCatching { reader.acquireLatestImage()?.close() }
                 check(request == null) { "중복 프레임 요청" }
-                request = deferred to window
+                request = pending
             }
         }
-        try { return awaitFreshFrame(deferred, refresh = { refreshSurface(deferred) }) }
+        try {
+            awaitFreshFrame(deferred, refresh = { refreshSurface(deferred) })
+            return pending.ownership.take()
+        }
         finally {
             deferred.cancel()
-            synchronized(lock) { if (request?.first === deferred) request = null }
+            synchronized(lock) { if (request === pending) request = null }
+            pending.ownership.close()
         }
     }
     private fun refreshSurface(deferred: CompletableDeferred<Frame>) {
         worker.post {
             synchronized(lock) {
-                if (!active || !deferred.isActive || request?.first !== deferred) return@synchronized
+                if (!active || !deferred.isActive || request?.deferred !== deferred) return@synchronized
                 val previous = reader
                 var replacement: ImageReader? = null
                 try {
@@ -120,7 +130,7 @@ class ScreenCaptureSource(
         synchronized(lock) {
             if (!active) return
             active = false
-            request?.first?.cancel(); request = null
+            request?.deferred?.cancel(); request = null
         }
         projection.unregisterCallback(callback)
         display?.release(); display = null

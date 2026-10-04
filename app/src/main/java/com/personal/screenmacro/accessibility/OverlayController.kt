@@ -41,10 +41,12 @@ class OverlayController(private val context: Context,
     private var brightnessClickRestores: Boolean? = null
     private val animation = Handler(Looper.getMainLooper())
     private var spinnerIndex = 0
+    private val spinnerFrames = arrayOf("[ | ]", "[ / ]", "[ - ]", "[ \\ ]")
     private val spinner = object : Runnable {
         override fun run() {
             if (!running || view == null) return
-            label?.text = "[ ${listOf("|", "/", "-", "\\")[spinnerIndex++ % 4]} ]"
+            label?.text = spinnerFrames[spinnerIndex]
+            spinnerIndex = (spinnerIndex + 1) % spinnerFrames.size
             animation.postDelayed(this, 250)
         }
     }
@@ -107,7 +109,7 @@ class OverlayController(private val context: Context,
             text = "⠿"; textSize = 21f; setTextColor(0xFF64748B.toInt()); gravity = Gravity.CENTER
         }, LinearLayout.LayoutParams(dp(24), dp(44)))
         title = TextView(context).apply {
-            text = "화면 매크로"; textSize = 13f; setTextColor(0xFFE2E8F0.toInt()); setTypeface(null, Typeface.BOLD)
+            text = "AUTO"; textSize = 13f; setTextColor(0xFFE2E8F0.toInt()); setTypeface(null, Typeface.BOLD)
             maxLines = 1; gravity = Gravity.CENTER_VERTICAL
         }.also { handle.addView(it, LinearLayout.LayoutParams(0, dp(44), 1f)) }
         header.addView(handle, LinearLayout.LayoutParams(0, dp(44), 1f))
@@ -237,7 +239,7 @@ class OverlayController(private val context: Context,
         collapsed = value; revision++
         details?.visibility = if (value) View.GONE else View.VISIBLE
         compactBrightness?.visibility = if (running && value) View.VISIBLE else View.GONE
-        title?.text = if (value) "● 실행 중" else "화면 매크로"
+        title?.text = if (value) "● 실행 중" else "AUTO"
         title?.setTextColor(if (value) 0xFF64DAB6.toInt() else 0xFFE2E8F0.toInt())
         toggle?.text = if (value) "⌄" else "⌃"
         toggle?.contentDescription = if (value) "패널 펼치기" else "패널 접기"

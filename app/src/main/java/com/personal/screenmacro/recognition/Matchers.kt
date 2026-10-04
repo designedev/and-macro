@@ -59,11 +59,13 @@ class Matchers(private val repository: MacroRepository) : AutoCloseable {
         val template = repository.bitmap(macro.templatePath ?: error("기준 이미지 없음"))
         val screen = Mat(); val target = Mat(); val scores = Mat()
         try {
-            validateTemplate(template)
+            require(template.width >= 12 && template.height >= 12) { "기준 이미지는 가로·세로 12px 이상이어야 합니다." }
             require(template.width <= crop.width && template.height <= crop.height) { "기준 이미지가 검색 영역보다 큽니다." }
-            Utils.bitmapToMat(crop, screen); Utils.bitmapToMat(template, target)
-            Imgproc.cvtColor(screen, screen, Imgproc.COLOR_RGBA2GRAY)
+            Utils.bitmapToMat(template, target)
             Imgproc.cvtColor(target, target, Imgproc.COLOR_RGBA2GRAY)
+            validateGrayTemplate(target)
+            Utils.bitmapToMat(crop, screen)
+            Imgproc.cvtColor(screen, screen, Imgproc.COLOR_RGBA2GRAY)
             Imgproc.matchTemplate(screen, target, scores, Imgproc.TM_CCOEFF_NORMED)
             val found = mutableListOf<Box>()
             repeat(256) {
@@ -94,10 +96,10 @@ class Matchers(private val repository: MacroRepository) : AutoCloseable {
         val input = InputImage.fromBitmap(crop, 0)
         // ML Kit tasks may outlive cancellation. Keep the bitmap alive until both tasks finish.
         val results = withContext(NonCancellable) {
-            val k = korean.process(input)
-            val l = latin.process(input)
-            val kr = runCatching { k.await() }
-            val lr = runCatching { l.await() }
+            val k = runCatching { korean.process(input) }
+            val l = runCatching { latin.process(input) }
+            val kr = k.mapCatching { it.await() }
+            val lr = l.mapCatching { it.await() }
             listOf(kr.getOrThrow(), lr.getOrThrow())
         }
         currentCoroutineContext().ensureActive()
@@ -115,13 +117,19 @@ class Matchers(private val repository: MacroRepository) : AutoCloseable {
         fun validateTemplate(bitmap: Bitmap) {
             require(bitmap.width >= 12 && bitmap.height >= 12) { "기준 이미지는 가로·세로 12px 이상이어야 합니다." }
             check(OpenCVLoader.initLocal()) { "OpenCV 초기화 실패" }
-            val mat = Mat(); val mean = MatOfDouble(); val deviation = MatOfDouble()
+            val mat = Mat()
             try {
                 Utils.bitmapToMat(bitmap, mat)
                 Imgproc.cvtColor(mat, mat, Imgproc.COLOR_RGBA2GRAY)
+                validateGrayTemplate(mat)
+            } finally { mat.release() }
+        }
+        private fun validateGrayTemplate(mat: Mat) {
+            val mean = MatOfDouble(); val deviation = MatOfDouble()
+            try {
                 Core.meanStdDev(mat, mean, deviation)
                 require(deviation.toArray()[0] >= 5.0) { "단색 등 특징이 부족한 이미지입니다. 글자나 윤곽이 포함되도록 자르세요." }
-            } finally { mat.release(); mean.release(); deviation.release() }
+            } finally { mean.release(); deviation.release() }
         }
     }
 }

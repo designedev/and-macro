@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.personal.screenmacro.*
 import com.personal.screenmacro.capture.CaptureService
 import com.personal.screenmacro.core.*
@@ -50,7 +51,7 @@ import java.util.UUID
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(message) { message?.let { snackbar.showSnackbar(it); onDismissMessage() } }
-    Scaffold(topBar = { TopAppBar(title = { Text("화면 매크로") }) }, snackbarHost = { SnackbarHost(snackbar) }) { padding ->
+    Scaffold(topBar = { TopAppBar(title = { Text("AUTO", fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold, letterSpacing = 2.sp) }) }, snackbarHost = { SnackbarHost(snackbar) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).imePadding().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(status.message, style = MaterialTheme.typography.titleSmall)
@@ -98,17 +99,10 @@ import java.util.UUID
                     }
                 }
                 else -> {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = onAccessibility, enabled = !locked) { Text(if (connected) "접근성 연결됨" else "접근성 설정") }
-                        OutlinedButton(onClick = onNotification, enabled = !notificationGranted()) { Text("알림 권한") }
-                        TextButton(onClick = { showHelp = !showHelp }) { Text("도움말") }
-                    }
+                    PermissionStrip(connected, notificationGranted(), brightnessGranted, locked, showHelp,
+                        onAccessibility, onNotification, onBrightness, { showHelp = !showHelp })
                     if (showHelp || !connected) {
-                        Text("접근성으로 활성 앱 확인과 터치를 실행합니다. 화면은 기기 안에서 처리하며 인터넷을 사용하지 않습니다. 접근성 활성화가 제한되면 설정 → 앱 → 화면 매크로 → 우측 메뉴 → 제한된 설정 허용을 확인하세요.", style = MaterialTheme.typography.bodySmall)
-                    }
-                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = onBrightness, enabled = !locked) { Text(if (brightnessGranted) "밝기 권한 허용됨" else "밝기 권한 설정") }
-                        Text("실행 중 최저 밝기\n종료하면 원래대로", style = MaterialTheme.typography.bodySmall)
+                        Text("접근성으로 활성 앱 확인과 터치를 실행합니다. 화면은 기기 안에서 처리하며 인터넷을 사용하지 않습니다. 접근성 활성화가 제한되면 설정 → 앱 → AUTO → 우측 메뉴 → 제한된 설정 허용을 확인하세요. 실행 중에는 최저 밝기로 낮추고 종료하면 원래 밝기로 복구합니다. 아이콘을 길게 누르면 항목과 상태를 확인할 수 있습니다.", style = MaterialTheme.typography.bodySmall)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { editorId = "NEW" }, enabled = !locked) { Text("새 매크로") }

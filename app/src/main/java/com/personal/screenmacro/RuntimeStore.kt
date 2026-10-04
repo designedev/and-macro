@@ -12,7 +12,13 @@ object RuntimeStore {
     val pendingCapture = MutableStateFlow<CapturedEditorFrame?>(null)
     val testResult = MutableStateFlow<TestPreview?>(null)
     fun log(macroId: String?, result: String, duration: Long = 0, error: String? = null) {
-        synchronized(this) { logs.value = (logs.value + ExecutionLog(System.currentTimeMillis(), macroId, result, duration, error)).takeLast(1000) }
+        synchronized(this) {
+            val previous = logs.value
+            logs.value = buildList(minOf(previous.size + 1, 1000)) {
+                addAll(previous.subList(maxOf(0, previous.size - 999), previous.size))
+                add(ExecutionLog(System.currentTimeMillis(), macroId, result, duration, error))
+            }
+        }
         if (BuildConfig.DEBUG) android.util.Log.i("ScreenMacro", "$result macro=${macroId?.take(8) ?: "session"} durationMs=$duration error=${error ?: "none"}")
     }
     fun clearCapture() { pendingCapture.value?.bitmap?.recycle(); pendingCapture.value = null }
