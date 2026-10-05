@@ -5,9 +5,11 @@ import com.personal.screenmacro.brightness.BrightnessController
 import com.personal.screenmacro.core.*
 class MacroApplication : Application() {
     val repository by lazy { MacroRepository(this) { RuntimeStore.status.value.busy } }
+    val stopNotices by lazy { StopNoticeStore(this) }
     val brightness by lazy { BrightnessController(this) }
     override fun onCreate() {
         super.onCreate()
+        RuntimeStore.lastStop.value = stopNotices.recoverInterrupted()
         if (brightness.pending) {
             val restored = brightness.restore()
             RuntimeStore.status.value = RuntimeStatus(if (restored) EngineState.IDLE else EngineState.ERROR,

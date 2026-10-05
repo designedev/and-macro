@@ -37,6 +37,7 @@ import java.util.UUID
     onCapture: (String, List<String>) -> Unit) {
     val macros by repository.macros.collectAsState(initial = emptyList())
     val status by RuntimeStore.status.collectAsState()
+    val lastStop by RuntimeStore.lastStop.collectAsState()
     val connected by RuntimeStore.accessibilityConnected.collectAsState()
     val preview by RuntimeStore.testResult.collectAsState()
     var editorId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -56,8 +57,12 @@ import java.util.UUID
             Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(status.message, style = MaterialTheme.typography.titleSmall)
                 Text("${status.state} · 화면 인식·자동 클릭", style = MaterialTheme.typography.bodySmall)
+                lastStop?.let { notice ->
+                    Text("마지막 중단 · ${SimpleDateFormat("MM/dd HH:mm", Locale.KOREA).format(Date(notice.time))}", style = MaterialTheme.typography.labelSmall)
+                    Text(notice.reason, style = MaterialTheme.typography.bodySmall)
+                }
                 if (status.busy) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { CaptureService.instance?.stopSession("사용자가 정지했습니다.") }) { Text("정지") }
+                    OutlinedButton(onClick = { CaptureService.instance?.stopSession("사용자가 정지했습니다.", retainNotice = false) }) { Text("정지") }
                 }
             } }
             when {

@@ -14,6 +14,10 @@ import android.os.Looper
 import android.view.*
 import android.widget.*
 import com.personal.screenmacro.MainActivity
+import com.personal.screenmacro.RuntimeStore
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import com.personal.screenmacro.capture.CaptureService
 import com.personal.screenmacro.core.Box
 import com.personal.screenmacro.core.OverlayPosition
@@ -35,6 +39,33 @@ class OverlayController(private val context: Context,
     private var action: TextView? = null
     private var restore: TextView? = null
     private var details: LinearLayout? = null
+    private var diagnosticText: TextView? = null
+    private var finishedReason: String? = null
+    private val clockFormat = SimpleDateFormat("HH:mm:ss", Locale.KOREA)
+    private val refreshDetails = object : Runnable {
+        override fun run() {
+            if (!running || view == null) return
+            if (!collapsed) renderDiagnostics()
+            animation.postDelayed(this, 500)
+        }
+    }
+    private fun renderDiagnostics() {
+        val text = buildString {
+            append(finishedReason?.let { "실행 중단\n$it\n\n클릭·캡처가 종료되었습니다. 내용을 확인한 뒤 닫아주세요." }
+                ?: RuntimeStore.status.value.message)
+            RuntimeStore.recognitionHint.value?.let { append("\n\n$it") }
+            val rows = RuntimeStore.recognition.value
+            if (rows.isNotEmpty()) {
+                append("\n\n최근 검사 결과")
+                if (rows.size > 1) append(" · 처리 시간은 함께 검사한 그룹 기준")
+                rows.forEachIndexed { index, row ->
+                    append("\n\n${index + 1}. ${row.name}\n${row.explanation()}")
+                    row.checkedAt?.let { append("\n${clockFormat.format(Date(it))} · ${row.durationMs} ms") }
+                }
+            }
+        }
+        if (diagnosticText?.text?.toString() != text) diagnosticText?.text = text
+    }
     private var toggle: TextView? = null
     private var compactBrightness: TextView? = null
     private var dimmed = false
@@ -73,7 +104,7 @@ class OverlayController(private val context: Context,
     }
     fun show(mode: String) {
         hide()
-        running = false; collapsed = false
+        running = false; collapsed = false; finishedReason = null
         val panel = object : LinearLayout(context) {
             override fun dispatchTouchEvent(event: MotionEvent): Boolean {
                 if (running && event.actionMasked == MotionEvent.ACTION_DOWN) {
@@ -114,7 +145,7 @@ class OverlayController(private val context: Context,
         }.also { handle.addView(it, LinearLayout.LayoutParams(0, dp(44), 1f)) }
         header.addView(handle, LinearLayout.LayoutParams(0, dp(44), 1f))
         toggle = button("⌃", "패널 접기", Color.TRANSPARENT, 0xFF94A3B8.toInt()) {
-            if (running) setCollapsed(!collapsed)
+            if (running || finishedReason != null) setCollapsed(!collapsed)
         }.apply { isEnabled = false; alpha = 0.35f; tag = "overlay-toggle" }
         header.addView(toggle, LinearLayout.LayoutParams(dp(40), dp(44)))
         compactBrightness = button("밝게", "기존 화면 밝기 복구", 0xFF233149.toInt(), 0xFFE2E8F0.toInt()) {
@@ -129,6 +160,15 @@ class OverlayController(private val context: Context,
         }.also { panel.addView(it, LinearLayout.LayoutParams(-1, -2)) }
         val content = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; tag = "overlay-details" }
         details = content
+        diagnosticText = TextView(context).apply {
+            textSize = 11f; setTextColor(0xFFCBD5E1.toInt()); setPadding(dp(4), dp(4), dp(4), dp(10))
+            tag = "overlay-diagnostic-text"
+        }
+        // Keep panel bounds stable when timestamps/messages change during recognition.
+        val diagnostics = ScrollView(context).apply {
+            tag = "overlay-diagnostics"; isFillViewport = false; addView(diagnosticText)
+        }
+        content.addView(diagnostics, LinearLayout.LayoutParams(-1, dp(180)))
         action = button(if (mode == "REGISTER") "기준 이미지 캡처" else if (mode == "TEST") "현재 앱에서 인식 테스트" else "현재 앱에서 실행",
             "대상 앱에서 실행", 0xFF64DAB6.toInt(), 0xFF08251F.toInt()) {
             val accepted = if (mode == "REGISTER") CaptureService.instance?.captureForEditor() == true
@@ -145,7 +185,8 @@ class OverlayController(private val context: Context,
         }.apply { visibility = View.GONE; tag = "overlay-brightness" }
         controls.addView(restore, LinearLayout.LayoutParams(0, dp(44), 1f).apply { rightMargin = dp(8) })
         controls.addView(button("정지", "매크로 정지", 0xFF392231.toInt(), 0xFFFDA4AF.toInt()) {
-            CaptureService.instance?.stopSession("사용자가 정지했습니다.")
+            if (finishedReason != null) hide()
+            else CaptureService.instance?.stopSession("사용자가 정지했습니다.", retainNotice = false)
         }.apply { tag = "overlay-stop" }, LinearLayout.LayoutParams(0, dp(44), 1f))
         content.addView(controls); panel.addView(content)
         val area = safeArea()
@@ -213,7 +254,7 @@ class OverlayController(private val context: Context,
             }
         }
         handle.isClickable = true
-        handle.setOnClickListener { if (running) setCollapsed(!collapsed) }
+        handle.setOnClickListener { if (running || finishedReason != null) setCollapsed(!collapsed) }
         // TalkBack can move the card without a pointer drag.
         handle.accessibilityDelegate = object : View.AccessibilityDelegate() {
             override fun onInitializeAccessibilityNodeInfo(host: View, info: android.view.accessibility.AccessibilityNodeInfo) {
@@ -239,12 +280,14 @@ class OverlayController(private val context: Context,
         collapsed = value; revision++
         details?.visibility = if (value) View.GONE else View.VISIBLE
         compactBrightness?.visibility = if (running && value) View.VISIBLE else View.GONE
-        title?.text = if (value) "● 실행 중" else "AUTO"
-        title?.setTextColor(if (value) 0xFF64DAB6.toInt() else 0xFFE2E8F0.toInt())
+        title?.text = if (finishedReason != null) "● 중단됨" else if (value) "● 실행 중" else "AUTO"
+        title?.setTextColor(if (finishedReason != null) 0xFFFBBF24.toInt() else if (value) 0xFF64DAB6.toInt() else 0xFFE2E8F0.toInt())
         toggle?.text = if (value) "⌄" else "⌃"
         toggle?.contentDescription = if (value) "패널 펼치기" else "패널 접기"
+        if (finishedReason != null) label?.text = if (value) "실행 중단 · 펼쳐서 이유 확인" else "실행 중단 · 아래 안내 확인"
         label?.minLines = if (running || value) 1 else 2; label?.maxLines = if (running || value) 1 else 2
         params?.let { p -> p.width = dp(if (value) 228 else 248); view?.let { manager.updateViewLayout(it, p) } }
+        if (!value) renderDiagnostics()
         view?.post { constrain() }
     }
     fun running(dimmed: Boolean) {
@@ -257,6 +300,7 @@ class OverlayController(private val context: Context,
         label?.contentDescription = "매크로 실행 중"
         setCollapsed(true)
         animation.removeCallbacks(spinner); spinnerIndex = 0; spinner.run()
+        animation.removeCallbacks(refreshDetails); refreshDetails.run()
     }
     fun brightnessState(value: Boolean) {
         dimmed = value
@@ -267,7 +311,26 @@ class OverlayController(private val context: Context,
         restore?.text = if (value) "밝게" else "어둡게"
         restore?.contentDescription = if (value) "기존 화면 밝기 복구" else "화면을 최저 밝기로 변경"
     }
-    fun message(text: String) { if (!running) label?.text = text }
+    fun message(text: String) {
+        if (!running && finishedReason == null) label?.text = text
+    }
+    fun finished(reason: String) {
+        if (view == null) return
+        animation.removeCallbacks(spinner); animation.removeCallbacks(refreshDetails)
+        running = false; dimmed = false; finishedReason = reason
+        action?.visibility = View.GONE; restore?.visibility = View.GONE
+        compactBrightness?.visibility = View.GONE
+        toggle?.isEnabled = true; toggle?.alpha = 1f
+        label?.apply {
+            text = "실행 중단 · 펼쳐서 이유 확인"; typeface = Typeface.DEFAULT
+            gravity = Gravity.START; contentDescription = text
+        }
+        (view?.findViewWithTag<View>("overlay-stop") as? TextView)?.apply {
+            text = "닫기"; contentDescription = "중단 안내 닫기"
+        }
+        diagnosticText?.setTextColor(0xFFFDE68A.toInt())
+        renderDiagnostics(); setCollapsed(collapsed)
+    }
     fun ready() { action?.isEnabled = true; action?.alpha = 1f }
     fun invisible() { view?.visibility = View.INVISIBLE; revision++ }
     fun visible() { view?.visibility = View.VISIBLE; revision++ }
@@ -277,10 +340,10 @@ class OverlayController(private val context: Context,
         return Box(location[0].toFloat(), location[1].toFloat(), (location[0]+v.width).toFloat(), (location[1]+v.height).toFloat())
     }
     fun hide() {
-        animation.removeCallbacks(spinner); running = false; dimmed = false; brightnessClickRestores = null
+        animation.removeCallbacks(spinner); animation.removeCallbacks(refreshDetails); running = false; finishedReason = null; dimmed = false; brightnessClickRestores = null
         interacting = false; gestureStart = null; revision++
         view?.let { runCatching { manager.removeView(it) } }
-        view = null; params = null; label = null; action = null; restore = null; details = null; toggle = null; compactBrightness = null; title = null
+        view = null; params = null; label = null; action = null; restore = null; details = null; diagnosticText = null; toggle = null; compactBrightness = null; title = null
     }
     fun openApp() { context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)) }
 }
