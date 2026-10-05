@@ -9,13 +9,15 @@ interface MultiEnginePort {
     suspend fun pause(ms: Long)
     suspend fun observe(macros: List<Macro>): Map<String, Observation>
     fun valid(observation: Observation): Boolean
+    fun validBatch(observations: Collection<Observation>): Boolean = observations.sameFrame() && observations.all(::valid)
     suspend fun tap(macro: Macro, observation: Observation, onDelivery: (Long) -> Unit): Boolean
     fun status(state: EngineState, message: String)
     fun log(macroId: String?, result: String, durationMs: Long = 0, error: String? = null)
 }
 
 /** One capture session, independent rule clocks, and exactly one gesture at a time. */
-class MultiMacroEngine(private val port: MultiEnginePort) {
+class MultiMacroEngine(private val port: MultiEnginePort, private val maxAgeMs: Long = DEFAULT_RESULT_AGE_MS) {
+    init { require(validResultAge(maxAgeMs)) }
     private var running = false
     suspend fun run(macros: List<Macro>) {
         check(!running) { "이미 실행 중입니다." }
@@ -38,11 +40,12 @@ class MultiMacroEngine(private val port: MultiEnginePort) {
                 try {
                     port.status(EngineState.WATCHING, "${ordered.size}개 매크로 · 새 화면에서 조건 확인")
                     val observations = port.observe(eligible)
+                    val batch = eligible.map { observations[it.id] ?: error("인식 결과가 누락되었습니다.") }
+                    if (!port.validBatch(batch)) error("SESSION_INVALID")
                     var ambiguous = 0
                     var expired = false
                     for (macro in eligible) {
                         val observation = observations[macro.id] ?: error("인식 결과가 누락되었습니다.")
-                        if (!port.valid(observation)) error("SESSION_INVALID")
                         when (val result = observation.result) {
                             MatchResult.Absent -> preUntil.remove(macro.id)
                             is MatchResult.Ambiguous -> {
@@ -50,7 +53,7 @@ class MultiMacroEngine(private val port: MultiEnginePort) {
                                 port.log(macro.id, "AMBIGUOUS", error = "MULTIPLE_CANDIDATES_${result.count}")
                             }
                             is MatchResult.Unique -> {
-                                if (!observation.isFresh(port.now())) {
+                                if (!observation.isFresh(port.now(), maxAgeMs)) {
                                     expired = true
                                     port.log(macro.id, "FRAME_EXPIRED", port.now() - observation.frameTime)
                                     continue
@@ -62,7 +65,7 @@ class MultiMacroEngine(private val port: MultiEnginePort) {
                     errors = 0
                     val chosen = eligible.firstNotNullOfOrNull { macro ->
                         val observation = observations.getValue(macro.id)
-                        if (observation.result is MatchResult.Unique && observation.isFresh(port.now()) &&
+                        if (observation.result is MatchResult.Unique && observation.isFresh(port.now(), maxAgeMs) &&
                             preUntil[macro.id]?.let { port.now() >= it } == true) macro to observation else null
                     }
                     if (chosen == null) {
@@ -85,7 +88,10 @@ class MultiMacroEngine(private val port: MultiEnginePort) {
                     }) continue
                     currentCoroutineContext().ensureActive()
                     if (!port.valid(observation)) error("SESSION_INVALID")
-                    if (!observation.isFresh(port.now())) continue
+                    if (!observation.isFresh(port.now(), maxAgeMs)) {
+                        port.log(macro.id, "FRAME_EXPIRED", port.now() - observation.frameTime)
+                        continue
+                    }
                     val schedule = schedules.getValue(macro.id)
                     if (schedule.remaining(port.now()) > 0) continue
                     val rank = if (macro.priority == Int.MAX_VALUE) ordered.indexOf(macro) + 1 else macro.priority + 1

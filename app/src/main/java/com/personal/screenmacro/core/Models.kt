@@ -85,6 +85,20 @@ sealed interface MatchResult {
 }
 data class WindowStamp(val packageName: String, val windowId: Int, val revision: Long)
 data class Observation(val sessionId: String, val frameTime: Long, val width: Int, val height: Int, val rotation: Int, val window: WindowStamp, val result: MatchResult, val overlayRevision: Long = 0)
-fun Observation.isFresh(now: Long) = now - frameTime in 0..1000
+fun Observation.isFresh(now: Long, maxAgeMs: Long = DEFAULT_RESULT_AGE_MS): Boolean {
+    require(validResultAge(maxAgeMs))
+    return now - frameTime in 0..maxAgeMs
+}
 data class RuntimeStatus(val state: EngineState = EngineState.IDLE, val message: String = "대기 중", val busy: Boolean = false)
 data class ExecutionLog(val time: Long, val macroId: String?, val result: String, val durationMs: Long = 0, val errorCode: String? = null)
+
+/** Pure checks for every result, including non-selected candidates in a shared frame. */
+fun Observation.coordinatesValid(): Boolean = (result as? MatchResult.Unique)?.box?.let {
+    it.valid() && it.left >= 0 && it.top >= 0 && it.right <= width && it.bottom <= height
+} ?: true
+fun Collection<Observation>.sameFrame(): Boolean {
+    val first = firstOrNull() ?: return false
+    return all { it.sessionId == first.sessionId && it.frameTime == first.frameTime &&
+        it.width == first.width && it.height == first.height && it.rotation == first.rotation &&
+        it.window == first.window && it.overlayRevision == first.overlayRevision && it.coordinatesValid() }
+}

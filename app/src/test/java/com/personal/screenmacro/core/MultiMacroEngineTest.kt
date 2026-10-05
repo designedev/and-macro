@@ -14,11 +14,13 @@ class MultiMacroEngineTest {
         val deliveries = mutableListOf<Delivery>()
         val logs = mutableListOf<String>()
         val results = mutableMapOf<String, MatchResult>()
+        var batchValidations = 0
         var observations = 0L
         var overlayChanges = 0
         var notificationPauses = 0
         var notificationAtValidation = 0
         var alive = true
+        var maxAgeMs = DEFAULT_RESULT_AGE_MS
         var latency = 80L
         var recognitionLatency = 0L
         var inGesture = 0
@@ -37,6 +39,10 @@ class MultiMacroEngineTest {
             return macros.associate { it.id to Observation("frame-$observations", at, 100, 100, 0,
                 WindowStamp("com.example", 1, 1), results[it.id] ?: MatchResult.Unique(Box(10f, 10f, 30f, 30f))) }
         }
+        override fun validBatch(observations: Collection<Observation>): Boolean {
+            batchValidations++
+            return observations.sameFrame() && valid(observations.first())
+        }
         override fun valid(observation: Observation): Boolean {
             if (notificationAtValidation > 0) { notificationAtValidation--; throw TransientWindowInterruptedException() }
             return alive
@@ -44,7 +50,7 @@ class MultiMacroEngineTest {
         override suspend fun tap(macro: Macro, observation: Observation, onDelivery: (Long) -> Unit): Boolean {
             beforeTap?.invoke(); currentCoroutineContext().ensureActive()
             assertEquals(0, inGesture)
-            assertTrue(observation.isFresh(now()))
+            assertTrue(observation.isFresh(now(), maxAgeMs))
             inGesture++
             try {
                 onDelivery(now())
@@ -184,6 +190,28 @@ class MultiMacroEngineTest {
         advanceTimeBy(201); runCurrent(); job.cancelAndJoin()
         assertEquals(3500L,p.deliveries.first().at)
         assertFalse(p.logs.contains("RECOGNITION_ERROR"))
+    }
+
+    @Test fun groupUsesOneBatchValidationInsteadOfRepeatedWindowQueriesForEachRule() = runTest {
+        val p = FakePort(testScheduler)
+        val rules = (0..7).map { Macro(id = "rule-$it", query = "확인", priority = it) }
+        rules.forEach { p.results[it.id] = MatchResult.Absent }
+        val job = launch { MultiMacroEngine(p).run(rules) }
+        advanceTimeBy(1501); runCurrent(); job.cancelAndJoin()
+        assertEquals(p.observations.toInt(), p.batchValidations)
+        assertTrue(p.deliveries.isEmpty())
+    }
+
+    @Test fun configuredLimitKeepsPriorityAndRejectsBeyondThreshold() = runTest {
+        val p = FakePort(testScheduler).apply { recognitionLatency = 1200; maxAgeMs = 1500 }
+        val job = launch { MultiMacroEngine(p, 1500).run(listOf(high, low)) }
+        advanceTimeBy(1201); runCurrent()
+        assertEquals("high", p.deliveries.first().id)
+        job.cancelAndJoin()
+        val slow = FakePort(testScheduler).apply { recognitionLatency = 1600; maxAgeMs = 1500 }
+        val rejected = launch { MultiMacroEngine(slow, 1500).run(listOf(high, low)) }
+        advanceTimeBy(5001); runCurrent(); rejected.cancelAndJoin()
+        assertTrue(slow.deliveries.isEmpty()); assertTrue(slow.logs.contains("FRAME_EXPIRED"))
     }
 
 }

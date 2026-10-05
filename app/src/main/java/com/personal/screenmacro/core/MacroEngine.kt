@@ -24,7 +24,8 @@ class ClickSchedule(private val interval: Long, private val postDelay: Long) {
         lastCompletion?.let { (it + postDelay - now).coerceAtLeast(0) } ?: 0
     )
 }
-class MacroEngine(private val port: EnginePort) {
+class MacroEngine(private val port: EnginePort, private val maxAgeMs: Long = DEFAULT_RESULT_AGE_MS) {
+    init { require(validResultAge(maxAgeMs)) }
     private var running = false
     suspend fun run(macro: Macro) {
         check(!running) { "이미 실행 중입니다." }
@@ -83,7 +84,7 @@ class MacroEngine(private val port: EnginePort) {
         } finally { running = false }
     }
     private suspend fun discardExpired(observation: Observation): Boolean {
-        if (observation.isFresh(port.now())) return false
+        if (observation.isFresh(port.now(), maxAgeMs)) return false
         val age = port.now() - observation.frameTime
         port.status(EngineState.WATCHING, "인식 결과가 오래되었습니다 (${age} ms) · 검색 영역을 줄여주세요")
         port.log("FRAME_EXPIRED", durationMs = age)

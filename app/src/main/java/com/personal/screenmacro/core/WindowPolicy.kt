@@ -29,6 +29,12 @@ object WindowPolicy {
             WindowKind.SYSTEM_UI, WindowKind.OTHER -> window.active || window.focused
         }
     }
+    fun canTap(target: WindowLayer, windows: List<WindowLayer>, box: Box, overlay: Box?): Boolean {
+        val bounds = target.bounds
+        return box.valid() && bounds.valid() && box.left >= bounds.left && box.top >= bounds.top &&
+            box.right <= bounds.right && box.bottom <= bounds.bottom &&
+            overlay?.intersects(box) != true && exclusions(target, windows).none { it.intersects(box) }
+    }
     fun exclusions(target: WindowLayer, windows: List<WindowLayer>): List<Box> = windows
         .filter { it.id != target.id && !it.ownOverlay && it.layer > target.layer }
         .map { it.bounds }.filter { it.valid() }
