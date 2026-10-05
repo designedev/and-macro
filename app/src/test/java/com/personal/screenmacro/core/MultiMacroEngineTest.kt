@@ -20,6 +20,7 @@ class MultiMacroEngineTest {
         var notificationPauses = 0
         var notificationAtValidation = 0
         var alive = true
+        var maxAgeMs = DEFAULT_RESULT_AGE_MS
         var latency = 80L
         var recognitionLatency = 0L
         var inGesture = 0
@@ -49,7 +50,7 @@ class MultiMacroEngineTest {
         override suspend fun tap(macro: Macro, observation: Observation, onDelivery: (Long) -> Unit): Boolean {
             beforeTap?.invoke(); currentCoroutineContext().ensureActive()
             assertEquals(0, inGesture)
-            assertTrue(observation.isFresh(now()))
+            assertTrue(observation.isFresh(now(), maxAgeMs))
             inGesture++
             try {
                 onDelivery(now())
@@ -199,6 +200,18 @@ class MultiMacroEngineTest {
         advanceTimeBy(1501); runCurrent(); job.cancelAndJoin()
         assertEquals(p.observations.toInt(), p.batchValidations)
         assertTrue(p.deliveries.isEmpty())
+    }
+
+    @Test fun configuredLimitKeepsPriorityAndRejectsBeyondThreshold() = runTest {
+        val p = FakePort(testScheduler).apply { recognitionLatency = 1200; maxAgeMs = 1500 }
+        val job = launch { MultiMacroEngine(p, 1500).run(listOf(high, low)) }
+        advanceTimeBy(1201); runCurrent()
+        assertEquals("high", p.deliveries.first().id)
+        job.cancelAndJoin()
+        val slow = FakePort(testScheduler).apply { recognitionLatency = 1600; maxAgeMs = 1500 }
+        val rejected = launch { MultiMacroEngine(slow, 1500).run(listOf(high, low)) }
+        advanceTimeBy(5001); runCurrent(); rejected.cancelAndJoin()
+        assertTrue(slow.deliveries.isEmpty()); assertTrue(slow.logs.contains("FRAME_EXPIRED"))
     }
 
 }

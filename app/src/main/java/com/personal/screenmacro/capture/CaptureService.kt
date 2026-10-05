@@ -20,6 +20,7 @@ class CaptureService : Service() {
     private var source: ScreenCaptureSource? = null
     private var work: Job? = null
     private var mode = ""
+    private var maxAgeMs = DEFAULT_RESULT_AGE_MS
     private var macros: List<Macro> = emptyList()
     private val macro get() = macros.firstOrNull()
     private var ending = false
@@ -54,6 +55,7 @@ class CaptureService : Service() {
         if (instance != null || source != null || intent == null) { stopSelf(startId); return START_NOT_STICKY }
         instance = this
         mode = intent.getStringExtra("mode") ?: ""
+        maxAgeMs = (application as MacroApplication).executionSettings.resultAgeMs.value
         setStatus(EngineState.STARTING, "화면 캡처 준비 중 · 대상 앱으로 이동하세요")
         try {
             val notificationManager = getSystemService(NotificationManager::class.java)
@@ -68,14 +70,14 @@ class CaptureService : Service() {
             val projection = getSystemService(MediaProjectionManager::class.java).getMediaProjection(Activity.RESULT_OK, consent) ?: error("캡처 세션 획득 실패")
             val bounds = getSystemService(WindowManager::class.java).maximumWindowMetrics.bounds
             source = ScreenCaptureSource(projection, bounds.width(), bounds.height(), rotation(), resources.configuration.densityDpi) { stopSession(it, true) }
-            RuntimeStore.beginDiagnostics(emptyList())
+            RuntimeStore.beginDiagnostics(emptyList(), maxAgeMs)
             access.overlay?.show(mode)
             work = scope.launch {
                 try {
                     if (mode != "REGISTER") {
                         val ids = intent.getStringArrayListExtra("macroIds") ?: intent.getStringExtra("macroId")?.let { arrayListOf(it) } ?: error("매크로 없음")
                         macros = repository.getOrdered(ids)
-                        RuntimeStore.beginDiagnostics(macros)
+                        RuntimeStore.beginDiagnostics(macros, maxAgeMs)
                         check(mode != "TEST" || macros.size == 1) { "인식 테스트는 한 매크로씩 진행하세요." }
                     }
                     withTimeout(5000) { while (source?.sizeConfirmed != true) delay(50) }
@@ -144,7 +146,7 @@ class CaptureService : Service() {
         if (overlay?.interacting == true || (overlay?.revision ?: 0) != o.overlayRevision ||
             !live() || !metadataValid(o) || !watchingTarget) return false
         val age = SystemClock.elapsedRealtime() - o.frameTime
-        if (age !in 0..1000) { RuntimeStore.log(macroId, "FRAME_EXPIRED", age); return false }
+        if (age !in 0..maxAgeMs) { RuntimeStore.log(macroId, "FRAME_EXPIRED", age); return false }
         return true
     }
     private suspend fun observe(m: Macro, preview: Boolean = false): RecognizedFrame {
@@ -173,7 +175,7 @@ class CaptureService : Service() {
             if (overlayRevision != (access.overlay?.revision ?: 0)) throw ObservationChangedException()
             check(valid(observation)) { "SESSION_INVALID" }
             RuntimeStore.log(m.id, "FRAME_READY_AGE", SystemClock.elapsedRealtime() - observation.frameTime)
-            RuntimeStore.recognized(m, result, duration, !observation.isFresh(SystemClock.elapsedRealtime()), SystemClock.elapsedRealtime() - observation.frameTime)
+            RuntimeStore.recognized(m, result, duration, !observation.isFresh(SystemClock.elapsedRealtime(), maxAgeMs), SystemClock.elapsedRealtime() - observation.frameTime)
             RuntimeStore.log(m.id, when(result) { is MatchResult.Unique -> "MATCH_UNIQUE"; is MatchResult.Ambiguous -> "MATCH_AMBIGUOUS"; else -> "MATCH_ABSENT" }, duration)
             if (m.type == RecognitionType.TEXT) RuntimeStore.log(m.id, "OCR_LINES_${outcome.texts.size}", duration)
             if (preview) retain = true
@@ -238,7 +240,7 @@ class CaptureService : Service() {
                     setStatus(EngineState.WATCHING, "인식 테스트 · 클릭 없음")
                     val found = observe(m, true)
                     RuntimeStore.clearTest()
-                    RuntimeStore.testResult.value = TestPreview(found.bitmap!!, found.observation.result, found.duration, m.query, m.matchMode, found.texts, found.observation.isFresh(SystemClock.elapsedRealtime()))
+                    RuntimeStore.testResult.value = TestPreview(found.bitmap!!, found.observation.result, found.duration, m.query, m.matchMode, found.texts, found.observation.isFresh(SystemClock.elapsedRealtime(), maxAgeMs), maxAgeMs)
                     watchingTarget = false
                     stopSession("인식 테스트 완료 · 클릭하지 않았습니다.", retainNotice = false)
                     access.overlay?.openApp()
@@ -253,7 +255,7 @@ class CaptureService : Service() {
                             { touchReady(observation, macro.id) }, onDelivery)
                         override fun status(state: EngineState, message: String) = setStatus(state, message)
                         override fun log(macroId: String?, result: String, durationMs: Long, error: String?) { RuntimeStore.log(macroId, result, durationMs, error) }
-                    }).run(macros)
+                    }, maxAgeMs).run(macros)
                 } else {
                     MacroEngine(object : EnginePort {
                         override fun now() = SystemClock.elapsedRealtime()
@@ -265,7 +267,7 @@ class CaptureService : Service() {
                         })
                         override fun status(state: EngineState, message: String) = setStatus(state, message)
                         override fun log(result: String, durationMs: Long, error: String?) { RuntimeStore.log(m.id, result, durationMs, error) }
-                    }).run(m)
+                    }, maxAgeMs).run(m)
                 }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { stopSession(if (e.message == "SESSION_INVALID") "화면 또는 활성 창이 바뀌었습니다. 수동 재시작이 필요합니다." else e.message ?: "실행 오류", true) }

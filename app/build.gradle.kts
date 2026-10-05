@@ -11,8 +11,8 @@ android {
         applicationId = "com.personal.screenmacro"
         minSdk = 36
         targetSdk = 36
-        versionCode = 17
-        versionName = "0.8.1"
+        versionCode = 18
+        versionName = "0.8.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }

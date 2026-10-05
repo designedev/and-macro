@@ -5,6 +5,7 @@ import com.personal.screenmacro.brightness.BrightnessController
 import com.personal.screenmacro.core.*
 class MacroApplication : Application() {
     val repository by lazy { MacroRepository(this) { RuntimeStore.status.value.busy } }
+    val executionSettings by lazy { ExecutionSettings(this, { RuntimeStore.status.value.busy || com.personal.screenmacro.capture.CaptureService.instance != null }) }
     val stopNotices by lazy { StopNoticeStore(this) }
     val brightness by lazy { BrightnessController(this) }
     override fun onCreate() {

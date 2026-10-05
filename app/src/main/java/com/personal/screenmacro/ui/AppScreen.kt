@@ -10,6 +10,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.Modifier
@@ -35,6 +36,9 @@ import java.util.UUID
     onAccessibility: () -> Unit, onNotification: () -> Unit, notificationGranted: () -> Boolean,
     brightnessGranted: Boolean, onBrightness: () -> Unit,
     onCapture: (String, List<String>) -> Unit) {
+    val settings = (LocalContext.current.applicationContext as MacroApplication).executionSettings
+    val resultAgeMs by settings.resultAgeMs.collectAsState()
+    var showSettings by rememberSaveable { mutableStateOf(false) }
     val macros by repository.macros.collectAsState(initial = emptyList())
     val status by RuntimeStore.status.collectAsState()
     val lastStop by RuntimeStore.lastStop.collectAsState()
@@ -51,6 +55,10 @@ import java.util.UUID
     val locked = status.busy || managing || reordering
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
+    if (showSettings) ExecutionSettingsDialog(resultAgeMs, locked, onSave = { value ->
+        try { settings.setResultAge(value); showSettings = false }
+        catch (e: Exception) { error = e.message }
+    }, onDismiss = { showSettings = false })
     LaunchedEffect(message) { message?.let { snackbar.showSnackbar(it); onDismissMessage() } }
     Scaffold(topBar = { TopAppBar(title = { Text("AUTO", fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold, letterSpacing = 2.sp) }) }, snackbarHost = { SnackbarHost(snackbar) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).imePadding().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -79,7 +87,7 @@ import java.util.UUID
                     val result = preview!!.result
                     Text(when (result) { is MatchResult.Unique -> "유일한 후보 · 중심 (${result.box.centerX.toInt()}, ${result.box.centerY.toInt()})"; is MatchResult.Ambiguous -> "후보 ${result.count}개 · 클릭 불가"; else -> "조건 없음" })
                     Text("처리 시간 ${preview!!.duration} ms")
-                    if (!preview!!.fresh) Text("1초를 초과한 인식 결과입니다. 실행 시 클릭하지 않고 다시 인식합니다. 검색 영역을 줄여주세요.", style = MaterialTheme.typography.bodySmall)
+                    if (!preview!!.fresh) Text("${resultAgeSeconds(preview!!.maxAgeMs)}초를 초과한 인식 결과입니다. 실행 시 클릭하지 않고 다시 인식합니다. 검색 영역을 줄여주세요.", style = MaterialTheme.typography.bodySmall)
                     if (preview!!.query.isNotEmpty()) {
                         Text("찾을 문구: ${preview!!.query} · ${if (preview!!.matchMode == MatchMode.EXACT) "정확히 일치" else "포함"}", style = MaterialTheme.typography.bodySmall)
                         Text("읽은 문구 ${preview!!.texts.size}개 · 아래 목록은 스크롤할 수 있습니다", style = MaterialTheme.typography.bodySmall)
@@ -112,7 +120,9 @@ import java.util.UUID
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { editorId = "NEW" }, enabled = !locked) { Text("새 매크로") }
                         TextButton(onClick = { showLogs = true }, enabled = !reordering) { Text("실행 로그") }
+                        TextButton(onClick = { showSettings = true }, enabled = !locked) { Text("실행 설정") }
                     }
+                    Text("인식 결과 유효 시간 ${resultAgeSeconds(resultAgeMs)}초", style = MaterialTheme.typography.bodySmall)
                     val selected = macros.filter { it.selected }
                     Button(onClick = { onCapture("RUN", selected.map { it.id }) }, enabled = connected && !locked && selected.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
                         Text("선택한 매크로 실행 (${selected.size}개)")

@@ -16,7 +16,8 @@ interface MultiEnginePort {
 }
 
 /** One capture session, independent rule clocks, and exactly one gesture at a time. */
-class MultiMacroEngine(private val port: MultiEnginePort) {
+class MultiMacroEngine(private val port: MultiEnginePort, private val maxAgeMs: Long = DEFAULT_RESULT_AGE_MS) {
+    init { require(validResultAge(maxAgeMs)) }
     private var running = false
     suspend fun run(macros: List<Macro>) {
         check(!running) { "이미 실행 중입니다." }
@@ -52,7 +53,7 @@ class MultiMacroEngine(private val port: MultiEnginePort) {
                                 port.log(macro.id, "AMBIGUOUS", error = "MULTIPLE_CANDIDATES_${result.count}")
                             }
                             is MatchResult.Unique -> {
-                                if (!observation.isFresh(port.now())) {
+                                if (!observation.isFresh(port.now(), maxAgeMs)) {
                                     expired = true
                                     port.log(macro.id, "FRAME_EXPIRED", port.now() - observation.frameTime)
                                     continue
@@ -64,7 +65,7 @@ class MultiMacroEngine(private val port: MultiEnginePort) {
                     errors = 0
                     val chosen = eligible.firstNotNullOfOrNull { macro ->
                         val observation = observations.getValue(macro.id)
-                        if (observation.result is MatchResult.Unique && observation.isFresh(port.now()) &&
+                        if (observation.result is MatchResult.Unique && observation.isFresh(port.now(), maxAgeMs) &&
                             preUntil[macro.id]?.let { port.now() >= it } == true) macro to observation else null
                     }
                     if (chosen == null) {
@@ -87,7 +88,7 @@ class MultiMacroEngine(private val port: MultiEnginePort) {
                     }) continue
                     currentCoroutineContext().ensureActive()
                     if (!port.valid(observation)) error("SESSION_INVALID")
-                    if (!observation.isFresh(port.now())) {
+                    if (!observation.isFresh(port.now(), maxAgeMs)) {
                         port.log(macro.id, "FRAME_EXPIRED", port.now() - observation.frameTime)
                         continue
                     }

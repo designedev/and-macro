@@ -182,4 +182,16 @@ class MacroEngineTest {
         assertFalse(p.logs.contains("RECOGNITION_ERROR"))
     }
 
+    @Test fun configuredLimitAllowsSlowRecognitionButStillRejectsBeyondLimit() = runTest {
+        val p = FakePort(testScheduler).apply { recognitionDelay = 1200 }
+        val job = launch { MacroEngine(p, 1500).run(macro) }
+        advanceTimeBy(1201); runCurrent(); assertEquals(listOf(1200L), p.deliveries)
+        job.cancelAndJoin()
+        val tooSlow = FakePort(testScheduler).apply { recognitionDelay = 1600 }
+        val rejected = launch { MacroEngine(tooSlow, 1500).run(macro) }
+        advanceTimeBy(5001); runCurrent(); rejected.cancelAndJoin()
+        assertTrue(tooSlow.deliveries.isEmpty())
+        assertTrue(tooSlow.logs.contains("FRAME_EXPIRED"))
+    }
+
 }
