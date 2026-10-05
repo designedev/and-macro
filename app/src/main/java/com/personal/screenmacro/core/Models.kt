@@ -88,3 +88,14 @@ data class Observation(val sessionId: String, val frameTime: Long, val width: In
 fun Observation.isFresh(now: Long) = now - frameTime in 0..1000
 data class RuntimeStatus(val state: EngineState = EngineState.IDLE, val message: String = "대기 중", val busy: Boolean = false)
 data class ExecutionLog(val time: Long, val macroId: String?, val result: String, val durationMs: Long = 0, val errorCode: String? = null)
+
+/** Pure checks for every result, including non-selected candidates in a shared frame. */
+fun Observation.coordinatesValid(): Boolean = (result as? MatchResult.Unique)?.box?.let {
+    it.valid() && it.left >= 0 && it.top >= 0 && it.right <= width && it.bottom <= height
+} ?: true
+fun Collection<Observation>.sameFrame(): Boolean {
+    val first = firstOrNull() ?: return false
+    return all { it.sessionId == first.sessionId && it.frameTime == first.frameTime &&
+        it.width == first.width && it.height == first.height && it.rotation == first.rotation &&
+        it.window == first.window && it.overlayRevision == first.overlayRevision && it.coordinatesValid() }
+}

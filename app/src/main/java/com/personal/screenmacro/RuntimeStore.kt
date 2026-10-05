@@ -15,10 +15,10 @@ object RuntimeStore {
         recognition.value = macros.map { RecognitionSummary(it.id, it.name) }
         recognitionHint.value = null; recognitionErrors = 0
     }
-    fun recognized(macro: Macro, result: MatchResult, duration: Long, expired: Boolean) {
+    fun recognized(macro: Macro, result: MatchResult, duration: Long, expired: Boolean, ageMs: Long? = null) {
         val count = when (result) { is MatchResult.Unique -> 1; is MatchResult.Ambiguous -> result.count; else -> 0 }
         recognition.value = recognition.value.map {
-            if (it.macroId == macro.id) RecognitionSummary(macro.id, macro.name, count, duration, System.currentTimeMillis(), expired) else it
+            if (it.macroId == macro.id) RecognitionSummary(macro.id, macro.name, count, duration, System.currentTimeMillis(), expired, ageMs) else it
         }
         recognitionHint.value = null; recognitionErrors = 0
     }
@@ -27,7 +27,7 @@ object RuntimeStore {
         recognition.value = recognition.value.map { row ->
             observations[row.macroId]?.let { observation ->
                 val count = when (val result = observation.result) { is MatchResult.Unique -> 1; is MatchResult.Ambiguous -> result.count; else -> 0 }
-                row.copy(count = count, durationMs = duration, checkedAt = checkedAt, expired = !observation.isFresh(now))
+                row.copy(count = count, durationMs = duration, checkedAt = checkedAt, expired = !observation.isFresh(now), ageMs = now - observation.frameTime)
             } ?: row
         }
         recognitionHint.value = null; recognitionErrors = 0
@@ -42,7 +42,7 @@ object RuntimeStore {
             recognitionHint.value = "인식 처리 오류 $recognitionErrors/3 · 다시 시도 중입니다. 캡처와 검색 영역을 확인하세요."
         }
         if (result == "FRAME_EXPIRED") recognition.value = recognition.value.map {
-            if (it.macroId == macroId) it.copy(expired = true) else it
+            if (it.macroId == macroId) it.copy(expired = true, ageMs = duration) else it
         }
         if (result == "GESTURE_CANCELLED") recognitionHint.value = "클릭이 완료되지 않았습니다. 화면·오버레이 상태를 확인하세요."
         synchronized(this) {

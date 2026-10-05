@@ -123,25 +123,29 @@ class CaptureService : Service() {
         }
         return current
     }
-    private fun valid(o: Observation): Boolean {
+    private fun metadataValid(o: Observation): Boolean {
         val s = source ?: return false
-        val match = o.result as? MatchResult.Unique
-        val within = match == null || (match.box.valid() && match.box.left >= 0 && match.box.top >= 0 && match.box.right <= o.width && match.box.bottom <= o.height)
-        if (!live() || o.sessionId != s.sessionId || o.width != s.width || o.height != s.height || o.rotation != s.rotation || !within || !target.matches(o.window)) return false
+        return o.sessionId == s.sessionId && o.width == s.width && o.height == s.height &&
+            o.rotation == s.rotation && o.coordinatesValid() && target.matches(o.window)
+    }
+    private fun validBatch(observations: Collection<Observation>): Boolean {
+        if (!observations.sameFrame() || !live() || !observations.all(::metadataValid)) return false
         val access = MacroAccessibilityService.instance ?: return false
-        val current = checkedWindow(access)
-        // A transient notification/window revision invalidates coordinates, not the session.
-        if (current != o.window) throw ObservationChangedException()
+        if (checkedWindow(access) != observations.first().window) throw ObservationChangedException()
         return true
     }
+    private fun valid(o: Observation): Boolean = validBatch(listOf(o))
     private suspend fun stableOverlay(access: MacroAccessibilityService): Long {
         while (access.overlay?.interacting == true) { check(live()) { "SESSION_INVALID" }; delay(50) }
         return access.overlay?.revision ?: 0
     }
-    private fun touchReady(o: Observation): Boolean {
+    private fun touchReady(o: Observation, macroId: String): Boolean {
         val overlay = MacroAccessibilityService.instance?.overlay
-        return overlay?.interacting != true && (overlay?.revision ?: 0) == o.overlayRevision &&
-            runCatching { valid(o) }.getOrDefault(false) && o.isFresh(SystemClock.elapsedRealtime()) && watchingTarget
+        if (overlay?.interacting == true || (overlay?.revision ?: 0) != o.overlayRevision ||
+            !live() || !metadataValid(o) || !watchingTarget) return false
+        val age = SystemClock.elapsedRealtime() - o.frameTime
+        if (age !in 0..1000) { RuntimeStore.log(macroId, "FRAME_EXPIRED", age); return false }
+        return true
     }
     private suspend fun observe(m: Macro, preview: Boolean = false): RecognizedFrame {
         check(live()) { "SESSION_INVALID" }
@@ -157,7 +161,7 @@ class CaptureService : Service() {
         try {
             check(live()) { "SESSION_INVALID" }
             if (checkedWindow(access) != window) throw ObservationChangedException()
-            val excluded = access.exclusions(s.width, s.height)
+            val excluded = access.exclusions(s.width, s.height, window)
             val start = SystemClock.elapsedRealtime()
             matcherCreated = true
             val outcome = matcher.findDetailed(frame.bitmap, m, excluded)
@@ -168,7 +172,8 @@ class CaptureService : Service() {
             // while the engine and the final dispatch gate must reject expired coordinates.
             if (overlayRevision != (access.overlay?.revision ?: 0)) throw ObservationChangedException()
             check(valid(observation)) { "SESSION_INVALID" }
-            RuntimeStore.recognized(m, result, duration, !observation.isFresh(SystemClock.elapsedRealtime()))
+            RuntimeStore.log(m.id, "FRAME_READY_AGE", SystemClock.elapsedRealtime() - observation.frameTime)
+            RuntimeStore.recognized(m, result, duration, !observation.isFresh(SystemClock.elapsedRealtime()), SystemClock.elapsedRealtime() - observation.frameTime)
             RuntimeStore.log(m.id, when(result) { is MatchResult.Unique -> "MATCH_UNIQUE"; is MatchResult.Ambiguous -> "MATCH_AMBIGUOUS"; else -> "MATCH_ABSENT" }, duration)
             if (m.type == RecognitionType.TEXT) RuntimeStore.log(m.id, "OCR_LINES_${outcome.texts.size}", duration)
             if (preview) retain = true
@@ -190,19 +195,24 @@ class CaptureService : Service() {
         try {
             check(live()) { "SESSION_INVALID" }
             if (checkedWindow(access) != window) throw ObservationChangedException()
-            val excluded = access.exclusions(s.width, s.height)
+            val excluded = access.exclusions(s.width, s.height, window)
             val started = SystemClock.elapsedRealtime()
             matcherCreated = true
             val outcomes = matcher.findAll(frame.bitmap, rules, excluded)
             val duration = SystemClock.elapsedRealtime() - started
             if (overlayRevision != (access.overlay?.revision ?: 0)) throw ObservationChangedException()
-            return rules.associate { rule ->
+            val observations = rules.associate { rule ->
                 val result = outcomes.getValue(rule.id).result
                 val observation = Observation(frame.session, frame.time, frame.bitmap.width, frame.bitmap.height, frame.rotation, window, result, overlayRevision)
-                check(valid(observation)) { "SESSION_INVALID" }
-                RuntimeStore.log(rule.id, when (result) { is MatchResult.Unique -> "MATCH_UNIQUE"; is MatchResult.Ambiguous -> "MATCH_AMBIGUOUS"; else -> "MATCH_ABSENT" }, duration)
                 rule.id to observation
-            }.also { RuntimeStore.recognizedBatch(it, duration, SystemClock.elapsedRealtime()) }
+            }
+            check(validBatch(observations.values)) { "SESSION_INVALID" }
+            RuntimeStore.log(null, "FRAME_READY_AGE", SystemClock.elapsedRealtime() - frame.time)
+            RuntimeStore.recognizedBatch(observations, duration, SystemClock.elapsedRealtime())
+            observations.forEach { (id, o) -> RuntimeStore.log(id, when (o.result) {
+                is MatchResult.Unique -> "MATCH_UNIQUE"; is MatchResult.Ambiguous -> "MATCH_AMBIGUOUS"; else -> "MATCH_ABSENT"
+            }, duration) }
+            return observations
         } finally { frame.bitmap.recycle() }
     }
     fun beginFromOverlay(): Boolean {
@@ -238,8 +248,9 @@ class CaptureService : Service() {
                         override suspend fun pause(ms: Long) { delay(ms) }
                         override suspend fun observe(macros: List<Macro>) = observeAll(macros)
                         override fun valid(observation: Observation) = this@CaptureService.valid(observation)
+                        override fun validBatch(observations: Collection<Observation>) = this@CaptureService.validBatch(observations)
                         override suspend fun tap(macro: Macro, observation: Observation, onDelivery: (Long) -> Unit) = access.tap(observation, macro.id,
-                            { touchReady(observation) }, onDelivery)
+                            { touchReady(observation, macro.id) }, onDelivery)
                         override fun status(state: EngineState, message: String) = setStatus(state, message)
                         override fun log(macroId: String?, result: String, durationMs: Long, error: String?) { RuntimeStore.log(macroId, result, durationMs, error) }
                     }).run(macros)
@@ -249,7 +260,7 @@ class CaptureService : Service() {
                         override suspend fun pause(ms: Long) { delay(ms) }
                         override suspend fun observe(macro: Macro) = this@CaptureService.observe(macro).observation
                         override fun valid(observation: Observation) = this@CaptureService.valid(observation)
-                        override suspend fun tap(observation: Observation, onDelivery: (Long) -> Unit) = access.tap(observation, m.id, { touchReady(observation) }, { at ->
+                        override suspend fun tap(observation: Observation, onDelivery: (Long) -> Unit) = access.tap(observation, m.id, { touchReady(observation, m.id) }, { at ->
                             onDelivery(at)
                         })
                         override fun status(state: EngineState, message: String) = setStatus(state, message)

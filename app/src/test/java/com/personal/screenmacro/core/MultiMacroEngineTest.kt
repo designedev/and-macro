@@ -14,6 +14,7 @@ class MultiMacroEngineTest {
         val deliveries = mutableListOf<Delivery>()
         val logs = mutableListOf<String>()
         val results = mutableMapOf<String, MatchResult>()
+        var batchValidations = 0
         var observations = 0L
         var overlayChanges = 0
         var notificationPauses = 0
@@ -36,6 +37,10 @@ class MultiMacroEngineTest {
             val at = now(); delay(recognitionLatency)
             return macros.associate { it.id to Observation("frame-$observations", at, 100, 100, 0,
                 WindowStamp("com.example", 1, 1), results[it.id] ?: MatchResult.Unique(Box(10f, 10f, 30f, 30f))) }
+        }
+        override fun validBatch(observations: Collection<Observation>): Boolean {
+            batchValidations++
+            return observations.sameFrame() && valid(observations.first())
         }
         override fun valid(observation: Observation): Boolean {
             if (notificationAtValidation > 0) { notificationAtValidation--; throw TransientWindowInterruptedException() }
@@ -184,6 +189,16 @@ class MultiMacroEngineTest {
         advanceTimeBy(201); runCurrent(); job.cancelAndJoin()
         assertEquals(3500L,p.deliveries.first().at)
         assertFalse(p.logs.contains("RECOGNITION_ERROR"))
+    }
+
+    @Test fun groupUsesOneBatchValidationInsteadOfRepeatedWindowQueriesForEachRule() = runTest {
+        val p = FakePort(testScheduler)
+        val rules = (0..7).map { Macro(id = "rule-$it", query = "확인", priority = it) }
+        rules.forEach { p.results[it.id] = MatchResult.Absent }
+        val job = launch { MultiMacroEngine(p).run(rules) }
+        advanceTimeBy(1501); runCurrent(); job.cancelAndJoin()
+        assertEquals(p.observations.toInt(), p.batchValidations)
+        assertTrue(p.deliveries.isEmpty())
     }
 
 }

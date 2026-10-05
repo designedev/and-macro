@@ -9,6 +9,7 @@ interface MultiEnginePort {
     suspend fun pause(ms: Long)
     suspend fun observe(macros: List<Macro>): Map<String, Observation>
     fun valid(observation: Observation): Boolean
+    fun validBatch(observations: Collection<Observation>): Boolean = observations.sameFrame() && observations.all(::valid)
     suspend fun tap(macro: Macro, observation: Observation, onDelivery: (Long) -> Unit): Boolean
     fun status(state: EngineState, message: String)
     fun log(macroId: String?, result: String, durationMs: Long = 0, error: String? = null)
@@ -38,11 +39,12 @@ class MultiMacroEngine(private val port: MultiEnginePort) {
                 try {
                     port.status(EngineState.WATCHING, "${ordered.size}개 매크로 · 새 화면에서 조건 확인")
                     val observations = port.observe(eligible)
+                    val batch = eligible.map { observations[it.id] ?: error("인식 결과가 누락되었습니다.") }
+                    if (!port.validBatch(batch)) error("SESSION_INVALID")
                     var ambiguous = 0
                     var expired = false
                     for (macro in eligible) {
                         val observation = observations[macro.id] ?: error("인식 결과가 누락되었습니다.")
-                        if (!port.valid(observation)) error("SESSION_INVALID")
                         when (val result = observation.result) {
                             MatchResult.Absent -> preUntil.remove(macro.id)
                             is MatchResult.Ambiguous -> {
@@ -85,7 +87,10 @@ class MultiMacroEngine(private val port: MultiEnginePort) {
                     }) continue
                     currentCoroutineContext().ensureActive()
                     if (!port.valid(observation)) error("SESSION_INVALID")
-                    if (!observation.isFresh(port.now())) continue
+                    if (!observation.isFresh(port.now())) {
+                        port.log(macro.id, "FRAME_EXPIRED", port.now() - observation.frameTime)
+                        continue
+                    }
                     val schedule = schedules.getValue(macro.id)
                     if (schedule.remaining(port.now()) > 0) continue
                     val rank = if (macro.priority == Int.MAX_VALUE) ordered.indexOf(macro) + 1 else macro.priority + 1

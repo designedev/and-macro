@@ -60,7 +60,8 @@ class OverlayController(private val context: Context,
                 if (rows.size > 1) append(" · 처리 시간은 함께 검사한 그룹 기준")
                 rows.forEachIndexed { index, row ->
                     append("\n\n${index + 1}. ${row.name}\n${row.explanation()}")
-                    row.checkedAt?.let { append("\n${clockFormat.format(Date(it))} · ${row.durationMs} ms") }
+                    row.checkedAt?.let { append("\n${clockFormat.format(Date(it))} · 인식 ${row.durationMs} ms") }
+                    row.ageMs?.let { append(" · 캡처 후 ${it} ms") }
                 }
             }
         }

@@ -2,7 +2,6 @@ package com.personal.screenmacro.accessibility
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
-import android.graphics.Rect
 import android.view.WindowManager
 import android.view.WindowInsets
 import android.graphics.Path
@@ -25,6 +24,8 @@ class MacroAccessibilityService : AccessibilityService() {
     private var gesturePending = false
     private var lastDiagnosticContent: Box? = null
     private var lastDiagnosticLayers: List<WindowLayer>? = null
+    private data class VerifiedWindow(val stamp: WindowStamp, val target: WindowLayer, val layers: List<WindowLayer>)
+    private var verifiedWindow: VerifiedWindow? = null
     var windowIssueCode = "NONE"; private set
     var interruptedWindow: WindowStamp? = null; private set
     private fun rejectWindow(code: String): WindowStamp? { windowIssueCode = code; return null }
@@ -50,7 +51,7 @@ class MacroAccessibilityService : AccessibilityService() {
         if (CaptureService.instance?.watchingTarget == true && CaptureService.instance?.acceptsWindow(stamp) != true && CaptureService.instance?.canWaitForWindow(this) != true) CaptureService.instance?.stopSession("대상 앱 또는 활성 창이 변경되었습니다. 수동으로 재시작하세요.")
     }
     fun applicationWindow(): WindowStamp? {
-        interruptedWindow = null
+        interruptedWindow = null; verifiedWindow = null
         val list = windows
         val layers = list.map(::layer)
         val metrics = getSystemService(WindowManager::class.java).maximumWindowMetrics
@@ -64,12 +65,12 @@ class MacroAccessibilityService : AccessibilityService() {
             android.util.Log.i("ScreenMacro", diagnostic)
         }
         if (interrupted) return rejectWindow("SYSTEM_UI")
-        fun ownOverlay(w: AccessibilityWindowInfo) = w.type == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY && w.root?.packageName?.toString() == packageName
+        fun ownOverlay(w: AccessibilityWindowInfo) = layers.firstOrNull { it.id == w.id }?.ownOverlay == true
         val active = list.firstOrNull { it.isActive }
         val app = if (active != null && (ownOverlay(active) || active.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD)) {
             list.firstOrNull { it.isFocused && it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
         } else active?.takeIf { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
-        val pkg = app?.root?.packageName?.toString()
+        val pkg = app?.let { selected -> layers.firstOrNull { it.id == selected.id }?.packageName }
         val next = if (pkg != null) pkg to app.id else null
         if (identity != next) { identity = next; revision++ }
         if (app == null || pkg == null || !ApplicationPolicy.canAutomate(pkg, packageName)) return rejectWindow("NO_APPLICATION")
@@ -87,27 +88,19 @@ class MacroAccessibilityService : AccessibilityService() {
         val config = magnificationController.magnificationConfig
         if ((config?.scale ?: 1f) != 1f) return rejectWindow("MAGNIFIED")
         windowIssueCode = "NONE"
-        return WindowStamp(pkg, app.id, revision)
+        return WindowStamp(pkg, app.id, revision).also { verifiedWindow = VerifiedWindow(it, target, layers) }
     }
-    private fun applicationBounds(): Box? {
-        val stamp = applicationWindow() ?: return null
-        val window = windows.firstOrNull { it.id == stamp.windowId } ?: return null
-        val rect = Rect(); window.getBoundsInScreen(rect)
-        return Box(rect.left.toFloat(), rect.top.toFloat(), rect.right.toFloat(), rect.bottom.toFloat()).takeIf { it.valid() }
-    }
-    private fun applicationContains(box: Box): Boolean {
-        val bounds = applicationBounds() ?: return false
-        return box.left >= bounds.left && box.top >= bounds.top && box.right <= bounds.right && box.bottom <= bounds.bottom
-    }
-    fun exclusions(width: Int = 0, height: Int = 0): List<Box> {
+    fun exclusions(width: Int = 0, height: Int = 0, checked: WindowStamp? = null): List<Box> {
+        // `checked` is used only immediately after checkedWindow, without suspension.
+        // Never reuse this snapshot for final gesture validation or another frame.
+        val stamp = checked ?: applicationWindow()
+        val snapshot = verifiedWindow?.takeIf { it.stamp == stamp && it.target.bounds.valid() }
+            ?: return listOf(Box(0f, 0f, width.toFloat(), height.toFloat()))
         val excluded = mutableListOf<Box>()
         overlay?.bounds()?.let { excluded.add(it) }
-        val stamp = applicationWindow() ?: return listOf(Box(0f, 0f, width.toFloat(), height.toFloat()))
-        val layers = windows.map(::layer)
-        val target = layers.firstOrNull { it.id == stamp.windowId } ?: return listOf(Box(0f, 0f, width.toFloat(), height.toFloat()))
-        excluded += WindowPolicy.exclusions(target, layers)
+        excluded += WindowPolicy.exclusions(snapshot.target, snapshot.layers)
         if (width > 0 && height > 0) {
-            val b = applicationBounds() ?: return listOf(Box(0f, 0f, width.toFloat(), height.toFloat()))
+            val b = snapshot.target.bounds
             listOf(Box(0f, 0f, width.toFloat(), b.top), Box(0f, b.bottom, width.toFloat(), height.toFloat()),
                 Box(0f, b.top, b.left, b.bottom), Box(b.right, b.top, width.toFloat(), b.bottom)).filter { it.valid() }.forEach(excluded::add)
         }
@@ -117,7 +110,13 @@ class MacroAccessibilityService : AccessibilityService() {
         val match = observation.result as? MatchResult.Unique ?: return false
         return withTimeoutOrNull(2500) {
             suspendCancellableCoroutine { continuation ->
-                if (gesturePending || !continuation.isActive || !valid() || applicationWindow() != observation.window || !applicationContains(match.box) || exclusions().any { it.intersects(match.box) }) {
+                // One new window snapshot verifies identity, app bounds and obscured areas.
+                // CaptureService's `valid` callback independently checks current session,
+                // geometry, overlay interaction/revision and freshness before dispatch.
+                val current = if (!gesturePending && continuation.isActive && valid()) applicationWindow() else null
+                val snapshot = verifiedWindow
+                if (current != observation.window || snapshot == null ||
+                    !WindowPolicy.canTap(snapshot.target, snapshot.layers, match.box, overlay?.bounds())) {
                     continuation.resume(false); return@suspendCancellableCoroutine
                 }
                 val path = Path().apply { moveTo(match.box.centerX, match.box.centerY) }
